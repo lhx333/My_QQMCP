@@ -24,7 +24,7 @@ class OmniQQReviewFixes(unittest.IsolatedAsyncioTestCase):
         server = NapCatMCPServer(client=NapCatClient(auto_heal=False))
         result = await server.handle_request({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
                                               'params': {'protocolVersion': '2099-01-01'}})
-        self.assertEqual(result['result']['protocolVersion'], '2024-11-05')
+        self.assertEqual(result['result']['protocolVersion'], '2025-06-18')
         await server.client.close()
 
     async def test_stdio_processes_ping_during_slow_request(self):
@@ -174,7 +174,7 @@ class OmniQQStaticReviewFixes(unittest.TestCase):
 
     def test_stdio_survives_malformed_requests(self):
         entry = Path(__file__).resolve().parent.parent / 'run_mcp.py'
-        result = subprocess.run([sys.executable, str(entry)], input='{broken\n[]\n{"jsonrpc":"2.0","id":7,"method":"ping"}\n',
+        result = subprocess.run([sys.executable, str(entry), '--transport', 'stdio'], input='{broken\n[]\n{"jsonrpc":"2.0","id":7,"method":"ping"}\n',
                                 text=True, capture_output=True, encoding='utf-8', timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         import json

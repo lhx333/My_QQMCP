@@ -1,11 +1,11 @@
 # OmniQQ-MCP: Full-Featured QQ Bot Control & OneBot 11 Model Context Protocol (MCP) Server
 
-[![MCP Compatible](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-blue)](https://modelcontextprotocol.io)
+[![MCP Streamable HTTP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue)](https://modelcontextprotocol.io)
 [![NapCatQQ](https://img.shields.io/badge/NapCatQQ-OneBot%2011-00BFFF)](https://github.com/NapNeko/NapCatQQ)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-green)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-**OmniQQ-MCP (`omniqq-mcp`)** 是基于 [NapNeko/NapCatQQ](https://github.com/NapNeko/NapCatQQ) 与 **OneBot 11 协议**的 QQ 控制与事件读取 MCP Server。本版本提供 74 项具名工具与 OneBot Action 透传，新增账号隔离缓存、并发请求、只读取消和可靠性修复。
+**OmniQQ-MCP (`omniqq-mcp`)** 是基于 [NapNeko/NapCatQQ](https://github.com/NapNeko/NapCatQQ) 与 **OneBot 11 协议**的 QQ 控制与事件读取 MCP Server。默认通过 **Streamable HTTP** 远程传输运行，提供 74 项具名工具与 OneBot Action 透传，并保留账号隔离缓存、并发请求、只读取消和可靠性修复。
 
 通过本工具，你可以让 **Claude Desktop、Google Antigravity、Cursor、Windsurf、Cline、OpenAI Agents** 等任意支持 MCP 的 AI 智能体直接获得**操控 QQ 的双手与实时感知的眼睛**——涵盖私聊/群聊收发、合并转发、群管禁言踢人、群文件上传下载、图片 OCR、好友与资料管理、**二维码扫码登录、多 QQ 账号热切换**，以及 **一键环境自检与自动部署更新**。
 
@@ -38,6 +38,13 @@
 - **实时收信感知 (`get_recent_messages` / `get_recent_notices_and_requests`)**：后台自动维护 WebSocket 长连接与环形消息队列（默认缓存最近 200 条消息与群通知/好友申请），自动净化 CQ 码与富媒体段，支持按群号、QQ 号、关键词秒级检索；
 - **机制与策略分离 (`Event Hook` 扩展总线)**：MCP Server 保持 100% 纯净通用，不写死任何特定业务白名单；同时在 `MessageBuffer.register_event_hook(callback)` 预留事件回调钩子，并支持多路 WebSocket 并行监听，方便开发者后期按需挂载自定义筛选与 Agent 唤醒脚本。
 
+### 5. 🌐 Streamable HTTP 远程 MCP（默认传输）
+- **单端点**：`POST /mcp`（JSON-RPC）、`GET /mcp`（SSE 保活流）、`DELETE /mcp`（终止会话）、`GET /health`（健康检查）；
+- **会话管理**：`initialize` 返回 `Mcp-Session-Id`；无效或过期会话返回 404；支持 `--stateless` 无状态模式；
+- **协议协商**：支持 `2025-06-18` / `2025-03-26` / `2024-11-05`，并校验 `MCP-Protocol-Version`；
+- **安全边界**：可选 `--auth-token` Bearer 鉴权、Origin 校验、默认仅监听 `127.0.0.1`；
+- **stdio 兼容**：`--transport stdio` 保留原有逐行 JSON-RPC 模式，方便旧宿主或本地调试。
+
 ---
 
 ## 🧰 74 项工具全景矩阵 (Tools Overview)
@@ -69,9 +76,41 @@ python -m pip install -r requirements.txt
 
 本地 NapCat 托管、扫码、进程管理与自动部署仅支持 Windows；连接外部 OneBot URL 时不检查或启动本地端口。Python、WebSocket、MCP 和 NapCat 的版本矩阵，以及升级备份和回滚方式，见 [可靠性审查](docs/RELIABILITY_REVIEW.md)。
 
-### 2. 在 MCP 客户端中挂载 (`mcp_config.json`)
+### 2. 启动 MCP Server
 
-在 **Antigravity (`~/.gemini/config/mcp_config.json`)**、**Claude Desktop** 或 **Cursor** 中添加：
+Streamable HTTP（默认）：
+
+```bash
+python napcat_mcp/run_mcp.py --host 127.0.0.1 --port 8000 --path /mcp
+```
+
+默认 URL 为 `http://127.0.0.1:8000/mcp`；非回环地址部署时请设置鉴权：
+
+```bash
+python napcat_mcp/run_mcp.py --host 0.0.0.0 --port 8000 --auth-token "your-secret-token"
+```
+
+健康检查：`curl http://127.0.0.1:8000/health`。
+
+### 3. 在 MCP 客户端中挂载
+
+远程 Streamable HTTP（推荐）：
+
+```json
+{
+  "mcpServers": {
+    "omniqq-mcp": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer your-secret-token"
+      }
+    }
+  }
+}
+```
+
+未启用 `--auth-token` 时可省略 `headers`。需要 stdio 兼容模式时使用：
 
 ```json
 {
@@ -80,7 +119,9 @@ python -m pip install -r requirements.txt
       "command": "python",
       "args": [
         "-u",
-        "/path/to/napcat_mcp/run_mcp.py"
+        "/path/to/napcat_mcp/run_mcp.py",
+        "--transport",
+        "stdio"
       ],
       "env": {
         "PYTHONIOENCODING": "utf-8",
@@ -91,7 +132,9 @@ python -m pip install -r requirements.txt
 }
 ```
 
-### 3. 首次使用自然语言交互示例
+Streamable HTTP 相关环境变量：`NAPCAT_MCP_TRANSPORT`、`NAPCAT_MCP_HOST`、`NAPCAT_MCP_PORT`、`NAPCAT_MCP_PATH`、`NAPCAT_MCP_AUTH_TOKEN`、`NAPCAT_MCP_ALLOWED_ORIGINS`、`NAPCAT_MCP_STATELESS`、`NAPCAT_MCP_SESSION_TIMEOUT`。
+
+### 4. 首次使用自然语言交互示例
 
 挂载完成后，直接对你的 AI 助手说：
 - *“检查一下我的 NapCat 环境状态，如果没部署帮我自动部署一下”*
@@ -104,7 +147,7 @@ python -m pip install -r requirements.txt
 ## v1.1.0 更新（2026-10-14）
 
 - **账号隔离缓存**：消息、通知和申请按 `self_id` 保存在内存中，切换账号不会混用收件记录。
-- **并发与取消**：stdio 同时处理请求，慢请求不阻塞查询；只读请求支持 `notifications/cancelled`，写操作继续完成并报告实际结果。
+- **并发与取消**：stdio 与 Streamable HTTP 均并发处理请求，慢请求不阻塞查询；只读请求支持 `notifications/cancelled`，写操作继续完成并报告实际结果。
 - **有界事件钩子**：事件按序投递，慢同步钩子在线程中执行，队列背压保护 WebSocket 读取。
 - **OneBot 鉴权**：HTTP 与 WebSocket 复用用户数据目录中的随机 Token；403 恢复先用只读探测验证候选凭据。
 - **可靠性修复**：外部端点不启动本地运行时；账号配置写入失败可见；进程清理匹配目标可执行文件和入口；升级失败回滚备份。
@@ -132,7 +175,7 @@ python -m pip install -r requirements.txt
 
 ## 安装与连接
 
-源码根目录运行 `python -m pip install .`，或安装 Release 附件中的 wheel。安装后可直接使用 `omniqq-mcp` 命令作为 MCP stdio 入口。
+源码根目录运行 `python -m pip install .`，或安装 Release 附件中的 wheel。安装后可使用 `omniqq-mcp` 命令启动，默认以 Streamable HTTP 在 `http://127.0.0.1:8000/mcp` 提供服务；`omniqq-mcp --transport stdio` 可作为传统 MCP stdio 入口。
 
 连接已有 OneBot 服务时，设置 `NAPCAT_HTTP_URL` 和 `NAPCAT_WS_URL`。本地默认运行时从私有凭据文件读取 Token；外部地址必须通过 `OMNIQQ_ONEBOT_TOKEN_FILE` 明确指定对应服务的私有 Token 文件（使用 Python 客户端时也可显式传入 `token`）。请保持该文件与 OneBot 服务端鉴权配置一致，且不要将其放入仓库。
 

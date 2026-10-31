@@ -1,6 +1,9 @@
 """
-NapCat MCP Server 核心协议调度器 (标准 JSON-RPC 2.0 over stdio)
-实现 MCP 初始化、工具、资源和提示词的 stdio 请求调度。
+NapCat MCP Server 核心协议调度器。
+
+同一套 JSON-RPC 2.0 处理逻辑同时服务于：
+- Streamable HTTP MCP 传输（默认，单端点 POST/GET/DELETE，支持会话与 SSE）；
+- stdio 传输（兼容旧宿主，需显式 `--transport stdio`）。
 """
 import os
 import sys
@@ -28,11 +31,15 @@ from .tools import (  # noqa: F401
 )
 
 logger = logging.getLogger("NapCatMCP.Server")
-SUPPORTED_PROTOCOL_VERSION = '2024-11-05'
+
+SUPPORTED_PROTOCOL_VERSIONS = ('2025-06-18', '2025-03-26', '2024-11-05')
+LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
+# 兼容旧常量
+SUPPORTED_PROTOCOL_VERSION = LATEST_PROTOCOL_VERSION
 
 
 class NapCatMCPServer:
-    """标准 MCP (Model Context Protocol) 服务端实现"""
+    """标准 MCP (Model Context Protocol) 服务端实现 (NapCat OneBot 11 + Streamable HTTP / stdio)"""
 
     def __init__(self, client: Optional[NapCatClient] = None):
         self.client = client or NapCatClient()
@@ -40,10 +47,18 @@ class NapCatMCPServer:
         self.registry.tools_map.update(registry.tools_map)
         self.server_info = {
             "name": "omniqq-mcp",
+            "title": "OmniQQ NapCat MCP",
             "version": __version__
         }
 
-    async def handle_request(self, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    @staticmethod
+    def negotiate_protocol_version(requested: Optional[str]) -> str:
+        if isinstance(requested, str) and requested in SUPPORTED_PROTOCOL_VERSIONS:
+            return requested
+        return LATEST_PROTOCOL_VERSION
+
+    async def handle_request(self, message: Dict[str, Any],
+                             protocol_version: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """处理单条 JSON-RPC 2.0 消息；若是 Notification (无 id) 则返回 None"""
         if not isinstance(message,dict):
             return self._error_response(None,-32600,'请求必须为 JSON 对象')
@@ -63,8 +78,10 @@ class NapCatMCPServer:
 
         try:
             if method == "initialize":
+                requested = params.get("protocolVersion")
+                selected = self.negotiate_protocol_version(requested or protocol_version)
                 result = {
-                    "protocolVersion": SUPPORTED_PROTOCOL_VERSION,
+                    "protocolVersion": selected,
                     "capabilities": {
                         "tools": {"listChanged": False},
                         "resources": {"subscribe": False, "listChanged": False},
@@ -76,6 +93,7 @@ class NapCatMCPServer:
                         "支持发送私聊/群聊消息、合并转发、撤回、群管控制、群文件上传下载、OCR、"
                         "好友与资料管理、二维码扫码登录、多账号热切换、实时消息读取以及 144+ 原生接口透传。"
                         "若连接失败，请先调用 check_napcat_environment 诊断环境。"
+                        "服务默认通过 Streamable HTTP 传输远程访问。"
                     )
                 }
                 return self._ok_response(msg_id, result)
@@ -253,7 +271,8 @@ class NapCatMCPServer:
         from .audit import record_activity
         if not isinstance(arguments, dict):
             arguments = {}
-        params = arguments.get('params') if isinstance(arguments.get('params'), dict) else {}
+        params_value = arguments.get('params')
+        params = params_value if isinstance(params_value, dict) else {}
         target = next((source[key] for source in (arguments, params)
                        for key in ('user_id', 'group_id', 'target_id') if key in source), None)
         record_activity(tool_name, target=target, status='error' if is_err else 'ok',
@@ -278,8 +297,26 @@ class NapCatMCPServer:
             }
         }
 
+    @staticmethod
+    def is_cancellable_request(method: Any, params: Any) -> bool:
+        tool_name = params.get('name', '') if isinstance(params, dict) else ''
+        return (
+            method in ('ping', 'resources/read', 'resources/list', 'prompts/get',
+                       'prompts/list', 'tools/list')
+            or (method == 'tools/call' and isinstance(tool_name, str)
+                and tool_name.startswith(('get_', 'list_', 'check_', 'fetch_'))
+                )
+        )
+
+    @staticmethod
+    def is_fast_method(method: Any) -> bool:
+        """元数据/存活检查不占用工具执行槽，保证繁忙时仍可响应。"""
+        return method in (
+            'initialize', 'ping', 'tools/list', 'resources/list', 'prompts/list', 'prompts/get'
+        )
+
     async def run_stdio(self):
-        """以标准 stdio 模式运行 MCP 服务主循环"""
+        """以 stdio 模式运行 MCP 服务主循环（兼容旧宿主，非默认传输）。"""
         # 启动后台 WebSocket 实时消息监听任务
         self.client.start_background_ws()
         loop = asyncio.get_running_loop()
@@ -297,12 +334,11 @@ class NapCatMCPServer:
 
         async def dispatch(request):
             request_id = request.get('id') if isinstance(request, dict) else None
+            current = asyncio.current_task()
             try:
                 # Metadata and liveness checks must remain available while
                 # all eight potentially slow tool execution slots are busy.
-                if isinstance(request, dict) and request.get('method') in (
-                    'initialize', 'ping', 'tools/list', 'resources/list', 'prompts/list', 'prompts/get'
-                ):
+                if isinstance(request, dict) and self.is_fast_method(request.get('method')):
                     response = await self.handle_request(request)
                 else:
                     async with slots:
@@ -313,9 +349,11 @@ class NapCatMCPServer:
                 logger.exception('MCP 请求调度失败')
                 response = self._error_response(request_id, -32603, '服务器内部错误')
             finally:
-                if request_id is not None and active.get(request_id) is asyncio.current_task():
+                if request_id is not None and active.get(request_id) is current:
                     active.pop(request_id, None)
             await write_response(response)
+            if current is not None:
+                current.wrote_response = True
 
         try:
             while True:
@@ -342,6 +380,16 @@ class NapCatMCPServer:
                         # Once a write starts, its remote effect may outlive cancellation.
                         if getattr(task, 'cancellable', False):
                             task.cancel()
+
+                            async def ensure_cancel_response(cancelled_task=task, rid=request_id):
+                                await asyncio.gather(cancelled_task, return_exceptions=True)
+                                if not getattr(cancelled_task, 'wrote_response', False):
+                                    await write_response(
+                                        self._error_response(rid, -32800, '请求已取消'))
+
+                            fallback = asyncio.create_task(ensure_cancel_response())
+                            pending.add(fallback)
+                            fallback.add_done_callback(pending.discard)
                     continue
                 request_id = req.get('id') if isinstance(req, dict) else None
                 if request_id is not None and type(request_id) not in (int, str):
@@ -357,11 +405,7 @@ class NapCatMCPServer:
                 task = asyncio.create_task(dispatch(req))
                 params = req.get('params') if isinstance(req, dict) else None
                 method = req.get('method') if isinstance(req, dict) else None
-                tool_name = params.get('name', '') if isinstance(params, dict) else ''
-                task.cancellable = (method in ('ping', 'resources/read', 'resources/list', 'prompts/get',
-                                               'prompts/list', 'tools/list') or
-                                    (method == 'tools/call' and isinstance(tool_name, str) and tool_name.startswith(
-                                        ('get_', 'list_', 'check_', 'fetch_'))))
+                task.cancellable = self.is_cancellable_request(method, params)
                 pending.add(task)
                 task.add_done_callback(pending.discard)
                 if request_id is not None:
@@ -370,6 +414,42 @@ class NapCatMCPServer:
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
             await self.client.close()
+
+    async def run_streamable_http(
+        self,
+        host: str = '127.0.0.1',
+        port: int = 8000,
+        path: str = '/mcp',
+        auth_token: Optional[str] = None,
+        allowed_origins: Optional[list[str]] = None,
+        stateless: bool = False,
+        session_timeout: float = 1800.0,
+    ):
+        """以 Streamable HTTP 远程模式运行 MCP 服务（默认传输）。"""
+        from .transport import StreamableHTTPTransport
+        self.client.start_background_ws()
+        transport = StreamableHTTPTransport(
+            server=self,
+            host=host,
+            port=port,
+            path=path,
+            auth_token=auth_token,
+            allowed_origins=allowed_origins,
+            stateless=stateless,
+            session_timeout=session_timeout,
+        )
+        await transport.start()
+        try:
+            await transport.wait_closed()
+        finally:
+            await transport.stop()
+            await self.client.close()
+
+    async def run(self, transport_mode: str = 'streamable-http', **kwargs):
+        if transport_mode == 'stdio':
+            await self.run_stdio()
+        else:
+            await self.run_streamable_http(**kwargs)
 
 
 def export_antigravity_schemas(target_dir: str) -> int:
