@@ -1,1 +1,1 @@
--r napcat_mcp/requirements.txt
+-r llonebot_mcp/requirements.txt

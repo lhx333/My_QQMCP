@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from napcat_mcp.server import NapCatMCPServer
+from llonebot_mcp.server import LLOneBotMCPServer
 
 
 class ActivityAuditTests(unittest.TestCase):
@@ -14,7 +14,7 @@ class ActivityAuditTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'activity.jsonl'
             with patch.dict(os.environ, {'OMNIQQ_ACTIVITY_LOG': str(path)}):
-                NapCatMCPServer._record_mcp_activity(
+                LLOneBotMCPServer._record_mcp_activity(
                     'send_private_msg', {'user_id': 123, 'message': 'private message',
                                          'task_id': 'task-1', 'version': 2, 'token': 'never-log'},
                     {'status': 'ok', 'retcode': 0, 'data': {'message_id': 456,

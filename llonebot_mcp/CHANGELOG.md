@@ -1,0 +1,91 @@
+# Changelog
+
+## [2.0.0] - 2026-10-31
+
+### Changed
+- Replaced the NapCatQQ backend with LLOneBot (LuckyLillia / LLBot). Runtime detection, configuration, deployment, process control and QR login now target LLBot CLI / Desktop / LiteLoaderQQNT layouts.
+- Writes LLOneBot `default_config.json` and `data/config_<uin>.json` using the `ob11.connect` HTTP/WS schema, including `webui` port 3080.
+- Switched the default MCP transport from local stdio to Streamable HTTP: single `/mcp` endpoint, `Mcp-Session-Id`, GET SSE, DELETE session termination, `MCP-Protocol-Version` negotiation, Origin checks and optional Bearer authentication.
+- Renamed lifecycle/passthrough tools to LLOneBot names; retained 8 NapCat tool names as compatibility aliases. Core profile now exposes 26 tools and full profile 82.
+
+### Added
+- `/health` endpoint, `--stateless` mode, `LLONEBOT_MCP_*` environment variables, and Streamable HTTP end-to-end tests.
+- Platform-aware LLBot release asset selection and `llbot_version.json` marker.
+- WebUI URL returned by login/start diagnostics.
+
+### Fixed
+- No longer kills the user's standalone QQ processes when starting LLOneBot.
+- Process cleanup only matches LLBot/PMHQ processes or `node <install>/llbot.js` within known installation roots.
+- Deployment preserves the LLBot `data/` directory (accounts, sessions, Token, logs) and rolls back on configuration or health-check failure.
+- Cancelled stdio requests that never started still receive a `-32800` response.
+
+## [1.2.2] - 2026-10-28
+
+### Fixed
+- Validate request IDs, cancellation IDs and tool names before stdio scheduling so malformed input cannot terminate the MCP session.
+- Preserve existing account data when upgrading an incomplete runtime whose `node.exe` is missing, including failed-upgrade rollback.
+- Keep implicit local OneBot credentials away from external endpoints. Remote endpoints require an explicit `token` or an explicitly selected `OMNIQQ_ONEBOT_TOKEN_FILE`; local-token recovery never probes a remote endpoint.
+- Discard stale queued callbacks after account changes, including switching away and back. Deferred account changes leave the currently active event buffer selected.
+- Check service readiness and runtime configuration before terminating conflicting standalone QQ processes.
+- Apply bounded exponential backoff with jitter after both clean and abnormal WebSocket disconnects; recover authentication failures only against the local runtime.
+- Match group-only queries by group ID, clear all three current-account event caches, and tolerate malformed optional event fields.
+
+### Performance
+- Keep ping, initialization and metadata queries responsive while all eight tool execution slots are occupied.
+- Move runtime extraction, copying, configuration writes and health checks off the event loop. Serialize deployments within one MCP process and retain the lock until an interrupted installation finishes or rolls back.
+- Precompute invariant filter arguments once per message-cache query.
+
+### Tests and compatibility
+- Add 19 offline robustness regressions. Core and full profiles continue to expose 20 and 74 tools respectively.
+- Preserve the public MCP-only package boundary; no account data, credentials, runtime files or application-specific modules are included.
+- Slow event hooks retain ordered backpressure; cross-process runtime coordination remains a follow-up.
+
+## [1.2.1] - 2026-10-26
+
+### Added
+- Pre-launch `QQ.exe` process cleanup (`kill_qq_processes`): automatically checks for and terminates conflicting standalone `QQ.exe` processes before starting the NapCat service (`start_napcat_service`, `switch_qq_account`, `restart_napcat_service`, `login_new_qq_by_qrcode`, and auto-heal).
+- Automatic Desktop QR code export (`export_qrcode_to_desktop`): whenever NapCat detects that login is required and generates `qrcode.png`, copies the QR code image to the user's Desktop (`qq_login_qrcode.png`) and returns `login_required=True` and `desktop_qrcode_path` prompting the user to scan.
+
+### Fixed
+- Included all 6 pure local runtime/buffer tools (`start_napcat_service`, `stop_napcat_service`, `list_qq_accounts`, `get_login_qrcode_image`, `get_recent_notices_and_requests`, `clear_recent_messages_buffer`) in `CORE_TOOL_NAMES` (20 tools in `core` mode) and added local handler dispatch in `call_napcat_api`.
+- Added explicit `list_supported_napcat_actions` guidance when `call_napcat_api` receives an unknown or unsupported action.
+
+## [1.2.0] - 2026-10-25
+
+### Added
+- Standard MCP Tool `annotations` (`title`, `readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) and `outputSchema` across all registered tools.
+- Dual tool-profile support (`OMNIQQ_TOOL_PROFILE=core` vs `full`): default `tools/list` exposes 19 orthogonal core & local tools (14 high-frequency core tools + 5 pure local runtime/buffer tools without OneBot HTTP equivalents), while `tools/call` and `OMNIQQ_TOOL_PROFILE=full` retain full access to all 74 named tools.
+
+### Changed
+- Stripped duplicate `:param` lines from tool primary `description` strings so parameter definitions live cleanly in `inputSchema` while descriptions focus on parameter constraints, interactions, and usage boundaries.
+- Expanded all 8 tool modules with explicit when-to-use / when-not-to-use guidance, sibling tool disambiguation, permission prerequisites, and side-effect / reversibility disclosures.
+
+## [1.1.0] - 2026-10-14
+
+### Added
+- Account-isolated in-memory message, notice and request caches, selected by QQ `self_id`.
+- Concurrent MCP stdio dispatch (eight active requests, 64 pending requests) and cancellation of read-only requests; writes finish and report their actual outcome.
+- Ordered event hooks with a bounded 200-record queue and worker-thread handling of synchronous callbacks.
+- Shared HTTP/WebSocket OneBot Token stored outside the project, restrictive credential ACLs on Windows, and read-only verification before recovering a 403 with a candidate Token.
+- Input/schema validation, structured message segment support, and a declared MCP protocol version of `2024-11-05`.
+- Windows CI covering Python 3.10–3.12, regression tests, lint, focused type checks, dependency audit and package smoke tests.
+
+### Fixed
+- External OneBot endpoints bypass local lifecycle checks; local deployment and process tools remain Windows-only.
+- Failed account/configuration writes are reported, and process cleanup checks the exact Node executable and NapCat entry.
+- Runtime upgrades stage and validate files, retain backups and restore the previous runtime on copy, configuration or health-check failure.
+- Invalid JSON and malformed JSON-RPC requests return errors without terminating stdio handling.
+- The passthrough Action catalog now includes both named history tools. Actual Action support still depends on the installed NapCat version.
+
+### Changed
+- New installations keep runtime, account selection, Token and logs in user data; existing checkout runtimes remain supported.
+- Activity audits record metadata and outcomes only, omitting message bodies, full arguments, file contents and credentials. Audit and application logs rotate.
+- Dependencies declare `websockets>=14,<17`. Restart MCP host processes after upgrading.
+
+## [1.0.1] - 2026-10-03
+
+- Added tool activity audit hooks, synchronous/asynchronous event callbacks and the account-management CLI.
+
+## [1.0.0] - 2026-10-03
+
+- Initial release: 74 named tools, OneBot Action passthrough, QR login, account switching, runtime deployment and WebSocket event buffering.
