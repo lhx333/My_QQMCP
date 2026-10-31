@@ -5,7 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-green)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-**OmniQQ-MCP (`omniqq-mcp`)** 是基于同仓库 [llonebot.nix](./llonebot.nix) 所打包的 **LLOneBot（LuckyLillia / LLBot）** 与 **OneBot 11 协议**的 QQ 控制与事件读取 MCP Server。
+**OmniQQ-MCP (`omniqq-mcp`)** 是基于 **LLOneBot（LuckyLillia / LLBot）** 与 **OneBot 11 协议**的 QQ 控制与事件读取 MCP Server。
 
 本版本完成两项核心迁移：
 
@@ -100,7 +100,7 @@ python -m pip install .
 任选一种方式，确保 OneBot HTTP 3000 / WebSocket 3001 可访问：
 
 - **LLBot CLI / Desktop**：从 [LLOneBot Releases](https://github.com/LLOneBot/LuckyLilliaBot/releases) 下载，首次通过 WebUI `http://127.0.0.1:3080` 扫码登录；
-- **Docker / Nix**：使用本仓库 [llonebot.nix](./llonebot.nix) 的 `sandbox` / `dockerImage`，映射 3000/3001/3080 端口；
+- **Docker**：将容器内的 OneBot HTTP `3000` / WebSocket `3001` / WebUI `3080` 映射到宿主机，再用 `LLONEBOT_HTTP_URL` / `LLONEBOT_WS_URL` 指向这些端口；
 - **已有安装**：设置 `LLONEBOT_HOME` 指向 LLBot 安装目录，或设置 `LLONEBOT_HTTP_URL` / `LLONEBOT_WS_URL` 连接远程实例。
 
 > LLOneBot 的 WebUI 密码位于 `bin/llbot/data/webui_token.txt`（旧插件布局为 `data/webui_token.txt`）。

@@ -16,7 +16,7 @@
 
 ## Planned
 
-- Add one-click adapters for the llonebot.nix `sandbox` and Docker image (container lifecycle, port mapping, WebUI token injection).
+- Add one-click adapters for Docker-based LLOneBot deployments (container lifecycle, port mapping, WebUI token injection).
 - Validate more MCP Streamable HTTP client implementations and OAuth-based remote authorization.
 - Test live WebSocket connections across the declared dependency range and LLOneBot releases.
 - Version the Action catalog against LLOneBot releases and add live capability discovery.
