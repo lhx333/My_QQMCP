@@ -1,0 +1,213 @@
+name: Auto build docker
+
+on:
+  schedule:
+    - cron:  '0 12 * * *'
+  workflow_dispatch:
+    inputs:
+      run_update:
+        description: '是否执行更新检查'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+env:
+  DOCKER_REPO: initialencounter/llonebot
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    outputs:
+      BUILD: ${{ steps.check_build.outputs.BUILD }}
+    steps:
+    - name: Check event type
+      id: check_event
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.run_update }}" != "true" ]]; then
+          echo "EVENT_TYPE=manual" >> $GITHUB_ENV
+          exit 0
+        else
+          echo "EVENT_TYPE=scheduled" >> $GITHUB_ENV
+        fi
+
+    - if: env.EVENT_TYPE == 'scheduled'
+      uses: actions/checkout@v4
+      with:
+          fetch-depth: 0
+
+    - if: env.EVENT_TYPE == 'scheduled'
+      name: Install Nix
+      uses: cachix/install-nix-action@v31
+
+    - if: env.EVENT_TYPE == 'scheduled'
+      name: Get latest version
+      run: |
+        git config --local user.email "actions@github.com"
+        git config --local user.name "GitHub Actions"
+        echo "LATEST_LLONEBOT_VERSION=$(echo "$(curl "https://api.github.com/repos/LLOneBot/LuckyLilliaBot/releases/latest" | jq -r '.tag_name')" | sed 's/^.//')" >> $GITHUB_ENV
+        echo "LATEST_PMHQ_VERSION=$(echo "$(curl "https://api.github.com/repos/linyuchen/PMHQ/releases/latest" | jq -r '.tag_name')" | sed 's/^.//')" >> $GITHUB_ENV
+
+    - if: env.EVENT_TYPE == 'scheduled'
+      name: Get local version
+      run: |
+        echo "LOCAL_LLONEBOT_VERSION=$(grep "llonebot_version = " package/sources.nix | cut -d'"' -f2)" >> $GITHUB_ENV
+        echo "LOCAL_PMHQ_VERSION=$(grep "pmhq_version = " package/sources.nix | cut -d'"' -f2)" >> $GITHUB_ENV
+
+    - if: env.EVENT_TYPE == 'scheduled' && env.LOCAL_LLONEBOT_VERSION != env.LATEST_LLONEBOT_VERSION
+      name: update llonebot
+      run: |
+        ./update.sh llonebot ${{ env.LATEST_LLONEBOT_VERSION }}
+        git add .
+        git commit -m "llonebot ${{ env.LOCAL_LLONEBOT_VERSION }} -> ${{ env.LATEST_LLONEBOT_VERSION }}"
+
+    - if: env.EVENT_TYPE == 'scheduled' && env.LOCAL_PMHQ_VERSION != env.LATEST_PMHQ_VERSION
+      name: update pmhq
+      run: |
+        ./update.sh pmhq ${{ env.LATEST_PMHQ_VERSION }}
+        git add .
+        git commit -m "pmhq ${{ env.LOCAL_PMHQ_VERSION }} -> ${{ env.LATEST_PMHQ_VERSION }}"
+
+    - if: env.EVENT_TYPE == 'scheduled'
+      name: Get old hash
+      run: |
+        echo "old_pmhq_amd64_hash=$(grep "pmhq_amd64_hash = " package/sources.nix | cut -d'"' -f2)" >> $GITHUB_ENV
+        echo "old_pmhq_arm64_hash=$(grep "pmhq_arm64_hash = " package/sources.nix | cut -d'"' -f2)" >> $GITHUB_ENV
+        echo "old_llonebot_hash=$(grep "llonebot_hash = " package/sources.nix | cut -d'"' -f2)" >> $GITHUB_ENV
+
+    - if: env.EVENT_TYPE == 'scheduled'
+      name: update hash
+      run: |
+        ./update.sh pmhq ${{ env.LATEST_PMHQ_VERSION }}
+        new_pmhq_amd64_hash=$(grep "pmhq_amd64_hash = " package/sources.nix | cut -d'"' -f2)
+        new_pmhq_arm64_hash=$(grep "pmhq_arm64_hash = " package/sources.nix | cut -d'"' -f2)
+        if [[ "$old_pmhq_amd64_hash" != "$new_pmhq_amd64_hash" ]] || [[ "$old_pmhq_arm64_hash" != "$new_pmhq_arm64_hash" ]]; then
+          git add .
+          git commit -m "fix: pmhq_hash"
+        fi
+
+        ./update.sh llonebot ${{ env.LATEST_LLONEBOT_VERSION }}
+        new_llonebot_hash=$(grep "llonebot_hash = " package/sources.nix | cut -d'"' -f2)
+        if [[ "$old_llonebot_hash" != "$new_llonebot_hash" ]]; then
+          git add .
+          git commit -m "fix: llonebot_hash"
+        fi
+
+    - if: env.EVENT_TYPE == 'scheduled'
+      name: Check if build is needed
+      id: check_build
+      run: |
+        if [ $(git rev-list --count @{u}..HEAD) -gt 0 ]; then
+          echo "BUILD=true" >> $GITHUB_OUTPUT
+        else
+          echo "BUILD=false" >> $GITHUB_OUTPUT
+        fi
+
+    - if: env.EVENT_TYPE == 'scheduled'
+      name: git push
+      run: git push
+
+  build:
+    needs: update
+    if: github.event_name == 'workflow_dispatch' || needs.update.outputs.BUILD == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: ${{ github.ref }}
+        
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: arm64
+
+    - name: Configure binfmt for qemu
+      run: |
+        docker run --privileged --rm tonistiigi/binfmt --install arm64
+
+    - uses: cachix/install-nix-action@v31
+      with:
+        extra_nix_config: |
+          extra-platforms = aarch64-linux
+          system-features = kvm
+          experimental-features = nix-command flakes
+          
+    - uses: DeterminateSystems/flakehub-cache-action@main
+
+    - name: Setup cross-compilation for aarch64
+      run: |
+        # 确保Nix可以访问QEMU
+        sudo mkdir -p /etc/nix
+        echo 'sandbox = false' | sudo tee -a /etc/nix/nix.conf
+        # 添加必要的构建支持
+        sudo apt-get update
+        sudo apt-get install -y qemu-user-static binfmt-support
+        # 确认 binfmt 支持已正确配置
+        ls -la /proc/sys/fs/binfmt_misc/
+
+    - name: Extract version information
+      id: version
+      run: |
+        git pull origin main
+        echo "LLONEBOT_VERSION=$(grep "llonebot_version = " package/sources.nix | cut -d'"' -f2)" >> $GITHUB_ENV
+        echo "PMHQ_VERSION=$(grep "pmhq_version = " package/sources.nix | cut -d'"' -f2)" >> $GITHUB_ENV
+        echo "QQ_VERSION=$(grep "version = " package/qq/sources.nix | cut -d'"' -f2 | grep -oP -m 1 '(?<!-)-\K.{5}')" >> $GITHUB_ENV
+
+    - name: Build Docker Image AMD64
+      run: |
+        nix build --option system x86_64-linux --show-trace .#dockerImage -o docker-image-amd64
+        
+    - name: Build Docker Image ARM64
+      run: |
+        nix build --option system aarch64-linux --show-trace .#dockerImage -o docker-image-aarch64
+
+    - name: Load Docker Images
+      run: |
+        docker load < docker-image-amd64
+        docker tag llonebot:latest ${{ env.DOCKER_REPO }}:latest-amd64
+        
+        docker load < docker-image-aarch64
+        docker tag llonebot:latest ${{ env.DOCKER_REPO }}:latest-arm64
+        
+    - name: Login Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+        
+    - name: Push Docker Image
+      run: |
+        # 检查版本号是否设置
+        if [ -z "${{ env.LLONEBOT_VERSION}}" ]; then
+          echo "::error::LLONEBOT_VERSION is not set"
+          exit 1
+        fi
+        
+        TAG="v${{ env.LLONEBOT_VERSION }}-${{ env.PMHQ_VERSION }}-${{ env.QQ_VERSION }}"
+        echo "Using tag: $TAG"
+
+        # 推送架构特定的镜像
+        docker push ${{ env.DOCKER_REPO }}:latest-amd64
+        docker push ${{ env.DOCKER_REPO }}:latest-arm64
+
+        # 创建并推送多架构manifest
+        docker manifest create ${{ env.DOCKER_REPO }}:latest \
+          --amend ${{ env.DOCKER_REPO }}:latest-amd64 \
+          --amend ${{ env.DOCKER_REPO }}:latest-arm64
+        
+        docker manifest create ${{ env.DOCKER_REPO }}:$TAG \
+          --amend ${{ env.DOCKER_REPO }}:latest-amd64 \
+          --amend ${{ env.DOCKER_REPO }}:latest-arm64
+
+        # 为manifest明确指定架构
+        docker manifest annotate ${{ env.DOCKER_REPO }}:latest ${{ env.DOCKER_REPO }}:latest-amd64 --os linux --arch amd64
+        docker manifest annotate ${{ env.DOCKER_REPO }}:latest ${{ env.DOCKER_REPO }}:latest-arm64 --os linux --arch arm64
+        docker manifest annotate ${{ env.DOCKER_REPO }}:$TAG ${{ env.DOCKER_REPO }}:latest-amd64 --os linux --arch amd64
+        docker manifest annotate ${{ env.DOCKER_REPO }}:$TAG ${{ env.DOCKER_REPO }}:latest-arm64 --os linux --arch arm64
+
+        # 推送manifest
+        docker manifest push ${{ env.DOCKER_REPO }}:latest
+        docker manifest push ${{ env.DOCKER_REPO }}:$TAG
