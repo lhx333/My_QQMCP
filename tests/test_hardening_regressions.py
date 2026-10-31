@@ -9,11 +9,11 @@ import zipfile
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-from napcat_mcp.client import NapCatClient
-from napcat_mcp.message_buffer import MessageBuffer
-from napcat_mcp.server import NapCatMCPServer
-from napcat_mcp.deployer import deploy_or_update_napcat
-from napcat_mcp.tools.env_lifecycle import switch_qq_account
+from llonebot_mcp.client import LLOneBotClient
+from llonebot_mcp.message_buffer import MessageBuffer
+from llonebot_mcp.server import LLOneBotMCPServer
+from llonebot_mcp.deployer import deploy_or_update_llonebot
+from llonebot_mcp.tools.env_lifecycle import switch_qq_account
 
 
 def event(account=111111, message_id=1, **values):
@@ -79,13 +79,13 @@ class BufferHardeningTests(unittest.IsolatedAsyncioTestCase):
 
 class ProtocolHardeningTests(unittest.IsolatedAsyncioTestCase):
     async def run_requests(self, requests, configure=None):
-        server = NapCatMCPServer(client=NapCatClient(token='test', auto_heal=False))
+        server = LLOneBotMCPServer(client=LLOneBotClient(token='test', auto_heal=False))
         if configure:
             configure(server)
         source = io.StringIO(''.join(json.dumps(value) + '\n' for value in requests))
         output = io.StringIO()
-        with patch('napcat_mcp.server.sys.stdin', source), \
-             patch('napcat_mcp.server.sys.stdout', output), \
+        with patch('llonebot_mcp.server.sys.stdin', source), \
+             patch('llonebot_mcp.server.sys.stdout', output), \
              patch.object(server.client, 'start_background_ws'):
             await server.run_stdio()
         return [json.loads(line) for line in output.getvalue().splitlines()]
@@ -127,44 +127,44 @@ class ProtocolHardeningTests(unittest.IsolatedAsyncioTestCase):
 class ClientHardeningTests(unittest.IsolatedAsyncioTestCase):
     async def test_external_endpoint_accepts_explicit_private_token_file(self):
         with patch.dict('os.environ', {'OMNIQQ_ONEBOT_TOKEN_FILE': 'explicit-remote-token-file'}), \
-             patch('napcat_mcp.client.load_onebot_token', return_value='explicit-remote-token') as load:
-            client = NapCatClient(http_url='https://example.invalid', auto_heal=False)
+             patch('llonebot_mcp.client.load_onebot_token', return_value='explicit-remote-token') as load:
+            client = LLOneBotClient(http_url='https://example.invalid', auto_heal=False)
             self.assertEqual(client._get_headers()['Authorization'], 'Bearer explicit-remote-token')
             load.assert_called_once()
             await client.close()
 
     async def test_external_endpoint_requires_explicit_token(self):
-        with patch('napcat_mcp.client.load_onebot_token', return_value='local-secret') as load:
-            client = NapCatClient(http_url='https://example.invalid', auto_heal=False)
+        with patch('llonebot_mcp.client.load_onebot_token', return_value='local-secret') as load:
+            client = LLOneBotClient(http_url='https://example.invalid', auto_heal=False)
             self.assertNotIn('Authorization', client._get_headers())
             load.assert_not_called()
             await client.close()
-        client = NapCatClient(http_url='https://example.invalid', token='explicit-remote-token', auto_heal=False)
+        client = LLOneBotClient(http_url='https://example.invalid', token='explicit-remote-token', auto_heal=False)
         self.assertEqual(client._get_headers()['Authorization'], 'Bearer explicit-remote-token')
         await client.close()
 
-    async def test_already_running_does_not_kill_qq(self):
-        client = NapCatClient(token='test', auto_heal=False)
-        with patch('napcat_mcp.client.is_port_listening', return_value=True), \
-             patch('napcat_mcp.client.kill_qq_processes') as kill:
-            result = await client.start_napcat_process()
+    async def test_already_running_does_not_launch_another_process(self):
+        client = LLOneBotClient(token='test', auto_heal=False)
+        with patch('llonebot_mcp.client.is_port_listening', return_value=True), \
+             patch('llonebot_mcp.client.launch_llonebot_process') as launch:
+            result = await client.start_llonebot_process()
         self.assertEqual(result['status'], 'already_running')
-        kill.assert_not_called()
+        launch.assert_not_called()
         await client.close()
 
-    async def test_missing_runtime_does_not_kill_qq(self):
-        client = NapCatClient(token='test', auto_heal=False)
-        with patch('napcat_mcp.client.is_port_listening', return_value=False), \
-             patch('napcat_mcp.client.os.path.exists', return_value=False), \
-             patch('napcat_mcp.client.kill_qq_processes') as kill:
-            result = await client.start_napcat_process()
+    async def test_missing_runtime_does_not_launch_process(self):
+        client = LLOneBotClient(token='test', auto_heal=False)
+        with patch('llonebot_mcp.client.is_port_listening', return_value=False), \
+             patch('llonebot_mcp.client.resolve_install_root', return_value=None), \
+             patch('llonebot_mcp.client.launch_llonebot_process') as launch:
+            result = await client.start_llonebot_process()
         self.assertEqual(result['status'], 'not_installed')
-        kill.assert_not_called()
+        launch.assert_not_called()
         await client.close()
 
     async def test_external_endpoint_never_receives_local_recovery_token(self):
-        client = NapCatClient(http_url='https://example.invalid', token='test', auto_heal=False)
-        with patch('napcat_mcp.client.get_current_account', return_value='123456'), \
+        client = LLOneBotClient(http_url='https://example.invalid', token='test', auto_heal=False)
+        with patch('llonebot_mcp.client.get_current_account', return_value='123456'), \
              patch('builtins.open', __import__('unittest.mock', fromlist=['mock_open']).mock_open(
                  read_data=json.dumps({'network': {'httpServers': [{'name': 'httpServer', 'token': 'secret'}]}}))), \
              patch.object(client, 'ensure_session', AsyncMock(side_effect=AssertionError('credential leaked'))) as session:
@@ -173,7 +173,7 @@ class ClientHardeningTests(unittest.IsolatedAsyncioTestCase):
         await client.close()
 
     async def test_clean_websocket_closures_have_increasing_retry_delay(self):
-        client = NapCatClient(token='test', auto_heal=False)
+        client = LLOneBotClient(token='test', auto_heal=False)
         connections = []
         class EmptyConnection:
             async def __aenter__(self):
@@ -187,8 +187,8 @@ class ClientHardeningTests(unittest.IsolatedAsyncioTestCase):
             async def __anext__(self):
                 raise StopAsyncIteration
         client._running = True
-        with patch('napcat_mcp.client.websockets.connect', side_effect=lambda *a, **k: EmptyConnection()), \
-             patch('napcat_mcp.client.asyncio.sleep', AsyncMock()) as sleep:
+        with patch('llonebot_mcp.client.websockets.connect', side_effect=lambda *a, **k: EmptyConnection()), \
+             patch('llonebot_mcp.client.asyncio.sleep', AsyncMock()) as sleep:
             await client._ws_loop()
         delays = [call.args[0] for call in sleep.await_args_list]
         self.assertEqual(len(delays), 2)
@@ -209,16 +209,16 @@ class LifecycleHardeningTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.01)
             active -= 1
             return {'status': 'success'}
-        with patch('napcat_mcp.deployer._deploy_or_update_napcat', side_effect=deploy), \
-             patch('napcat_mcp.deployer._deployment_lock', asyncio.Lock()):
-            await asyncio.gather(deploy_or_update_napcat(confirmed=True),
-                                 deploy_or_update_napcat(confirmed=True))
+        with patch('llonebot_mcp.deployer._deploy_or_update_llonebot', side_effect=deploy), \
+             patch('llonebot_mcp.deployer._deployment_lock', asyncio.Lock()):
+            await asyncio.gather(deploy_or_update_llonebot(confirmed=True),
+                                 deploy_or_update_llonebot(confirmed=True))
         self.assertEqual(maximum, 1)
 
     async def test_deployment_health_check_does_not_block_event_loop(self):
         entered = threading.Event()
         heartbeat = threading.Event()
-        def health():
+        def health(*_args, **_kwargs):
             entered.set()
             if not heartbeat.wait(timeout=1):
                 raise RuntimeError('event loop was blocked by deployment')
@@ -229,27 +229,30 @@ class LifecycleHardeningTests(unittest.IsolatedAsyncioTestCase):
             heartbeat.set()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            installed = root / 'shell_node'
+            installed = root / 'llbot'
             archive = root / 'offline.zip'
             with zipfile.ZipFile(archive, 'w') as package:
-                package.writestr('node.exe', b'new')
-                package.writestr('index.js', b'new-index')
-            with patch.multiple('napcat_mcp.deployer', RUNTIME_DIR=str(root), SHELL_NODE_DIR=str(installed),
-                                NODE_EXE=str(installed / 'node.exe'), INDEX_JS=str(installed / 'index.js'),
-                                LOCAL_RELEASE_ZIP=str(archive)), \
-                 patch('napcat_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
-                 patch('napcat_mcp.deployer.kill_napcat_processes'), \
-                 patch('napcat_mcp.deployer.get_current_account', return_value=''), \
-                 patch('napcat_mcp.deployer.check_installed_runtime', side_effect=health):
-                result, _ = await asyncio.gather(deploy_or_update_napcat(confirmed=True), beat())
+                package.writestr('llbot.js', b'new-entry')
+                package.writestr('default_config.json', b'{"ob11":{"enable":true,"connect":[]}}')
+            with patch.multiple('llonebot_mcp.deployer', RUNTIME_DIR=str(root), LLBOT_HOME=str(installed),
+                                LLBOT_CONFIG_DIR=str(installed), LLBOT_DATA_DIR=str(installed / 'data'),
+                                LLBOT_DEFAULT_CONFIG=str(installed / 'default_config.json'),
+                                LLBOT_ENTRY_JS=str(installed / 'llbot.js'),
+                                LLBOT_EXECUTABLE=None, LLBOT_LAUNCHER=None,
+                                LLBOT_OFFLINE_ZIP=str(archive), LOCAL_RELEASE_ZIP=str(archive)), \
+                 patch('llonebot_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
+                 patch('llonebot_mcp.deployer.kill_llonebot_processes'), \
+                 patch('llonebot_mcp.deployer.get_current_account', return_value=''), \
+                 patch('llonebot_mcp.deployer.check_installed_runtime', side_effect=health):
+                result, _ = await asyncio.gather(deploy_or_update_llonebot(confirmed=True), beat())
             self.assertEqual(result['status'], 'success')
             self.assertTrue(heartbeat.is_set())
 
     async def test_deferred_switch_keeps_live_account_buffer(self):
-        client = NapCatClient(token='test', auto_heal=False)
+        client = LLOneBotClient(token='test', auto_heal=False)
         client.buffer.select_account('111111')
-        with patch('napcat_mcp.tools.env_lifecycle.set_current_account', return_value=True), \
-             patch('napcat_mcp.tools.env_lifecycle.get_available_accounts', return_value=[]):
+        with patch('llonebot_mcp.tools.env_lifecycle.set_current_account', return_value=True), \
+             patch('llonebot_mcp.tools.env_lifecycle.get_available_accounts', return_value=[]):
             result = await switch_qq_account(client, '222222', restart_immediately=False)
         self.assertFalse(result['restarted'])
         self.assertEqual(client.buffer.active_account, '111111')
@@ -258,27 +261,30 @@ class LifecycleHardeningTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_upgrade_preserves_broken_installation_account_data(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            installed = root / 'shell_node'
-            (installed / 'napcat' / 'cache').mkdir(parents=True)
-            original = installed / 'napcat' / 'cache' / 'account.dat'
+            installed = root / 'llbot'
+            (installed / 'data').mkdir(parents=True)
+            original = installed / 'data' / 'account.dat'
             original.write_bytes(b'original-account-data')
             archive = root / 'offline.zip'
             with zipfile.ZipFile(archive, 'w') as package:
-                package.writestr('node.exe', b'new')
-                package.writestr('index.js', b'new-index')
-            with patch.multiple('napcat_mcp.deployer', RUNTIME_DIR=str(root), SHELL_NODE_DIR=str(installed),
-                                NODE_EXE=str(installed / 'node.exe'), INDEX_JS=str(installed / 'index.js'),
-                                LOCAL_RELEASE_ZIP=str(archive)), \
-                 patch('napcat_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
-                 patch('napcat_mcp.deployer.kill_napcat_processes'), \
-                 patch('napcat_mcp.deployer.get_current_account', return_value='123456'), \
-                 patch('napcat_mcp.deployer.ensure_onebot_config', return_value=False):
-                result = await deploy_or_update_napcat(confirmed=True)
+                package.writestr('llbot.js', b'new-entry')
+                package.writestr('default_config.json', b'{"ob11":{"enable":true,"connect":[]}}')
+            with patch.multiple('llonebot_mcp.deployer', RUNTIME_DIR=str(root), LLBOT_HOME=str(installed),
+                                LLBOT_CONFIG_DIR=str(installed), LLBOT_DATA_DIR=str(installed / 'data'),
+                                LLBOT_DEFAULT_CONFIG=str(installed / 'default_config.json'),
+                                LLBOT_ENTRY_JS=str(installed / 'llbot.js'),
+                                LLBOT_EXECUTABLE=None, LLBOT_LAUNCHER=None,
+                                LLBOT_OFFLINE_ZIP=str(archive), LOCAL_RELEASE_ZIP=str(archive)), \
+                 patch('llonebot_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
+                 patch('llonebot_mcp.deployer.kill_llonebot_processes'), \
+                 patch('llonebot_mcp.deployer.get_current_account', return_value='123456'), \
+                 patch('llonebot_mcp.deployer.ensure_onebot_config', return_value=False):
+                result = await deploy_or_update_llonebot(confirmed=True)
             self.assertEqual(result['status'], 'failed')
             self.assertTrue(result['rolled_back'])
             self.assertTrue(original.exists(), 'rollback deleted pre-existing account data')
             self.assertEqual(original.read_bytes(), b'original-account-data')
-            self.assertFalse((installed / 'node.exe').exists())
+            self.assertFalse((installed / 'llbot.js').exists())
 
 
 if __name__ == '__main__':

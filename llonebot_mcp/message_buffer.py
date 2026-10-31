@@ -1,6 +1,6 @@
 """
-NapCat MCP Server 实时消息滚动缓冲区与事件回调接口
-负责接收 WebSocket 消息流，净化 CQ 码与消息段，并为未来外部筛选脚本预留 Event Hook。
+LLOneBot MCP Server 实时消息滚动缓冲区与事件回调接口。
+负责接收 OneBot 11 WebSocket 消息流，净化 CQ 码与消息段，并为外部筛选脚本预留 Event Hook。
 """
 import time
 import datetime
@@ -8,7 +8,7 @@ import logging
 from collections import deque
 from typing import Any, Callable, Optional
 
-logger = logging.getLogger("NapCatMCP.MessageBuffer")
+logger = logging.getLogger("LLOneBotMCP.MessageBuffer")
 
 
 class MessageBuffer:

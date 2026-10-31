@@ -1,14 +1,14 @@
 """
-消息收发、撤回、合并转发、互动与群精华控制工具集 (依据 NapCat OneBot 11 官方规范)
+消息收发、撤回、合并转发、互动与群精华控制工具集 (依据 LLOneBot / OneBot 11 官方规范)
 """
 from typing import Any, Optional
 from . import registry
-from ..client import NapCatClient
+from ..client import LLOneBotClient
 
 
 @registry.register()
 async def send_private_msg(
-    client: NapCatClient,
+    client: LLOneBotClient,
     user_id: int,
     message: str | list[dict[str, Any]],
     auto_escape: bool = False
@@ -31,7 +31,7 @@ async def send_private_msg(
 
 @registry.register()
 async def send_group_msg(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     message: str | list[dict[str, Any]],
     auto_escape: bool = False
@@ -54,7 +54,7 @@ async def send_group_msg(
 
 @registry.register()
 async def send_msg(
-    client: NapCatClient,
+    client: LLOneBotClient,
     message_type: str,
     target_id: int,
     message: str | list[dict[str, Any]],
@@ -83,12 +83,12 @@ async def send_msg(
 
 @registry.register()
 async def delete_msg(
-    client: NapCatClient,
+    client: LLOneBotClient,
     message_id: int
 ) -> dict[str, Any]:
     """
     从私聊或群聊会话中永久撤回指定消息 (OneBot 11: delete_msg)。
-    适用场景：发错消息需紧急撤回，或作为群主/群管理员撤回群成员的违规发言。不适用与替代：若仅需将群精华消息移出精华列表或删除群共享文件，请通过 `call_napcat_api` 调用 `delete_essence_msg` 或 `delete_group_file`。
+    适用场景：发错消息需紧急撤回，或作为群主/群管理员撤回群成员的违规发言。不适用与替代：若仅需将群精华消息移出精华列表或删除群共享文件，请通过 `call_llonebot_api` 调用 `delete_essence_msg` 或 `delete_group_file`。
     参数约束：传入的 `message_id` 必须来自 `send_private_msg`、`send_group_msg` 的返回值或 `get_recent_messages` 消息记录中的有效整数 ID。
     行为与权限限制：不可逆的破坏性操作（撤回后消息无法恢复）；撤回自身消息受 QQ 平台 2 分钟时效限制，撤回他人群消息要求当前账号在该群具备管理员或群主权限，超时或权限不足将返回非 0 `retcode`。
     :param message_id: 目标消息的唯一整数 ID（由发送接口返回或从近期消息列表中获取）
@@ -98,7 +98,7 @@ async def delete_msg(
 
 @registry.register()
 async def get_msg(
-    client: NapCatClient,
+    client: LLOneBotClient,
     message_id: int
 ) -> dict[str, Any]:
     """
@@ -112,7 +112,7 @@ async def get_msg(
 
 @registry.register()
 async def get_forward_msg(
-    client: NapCatClient,
+    client: LLOneBotClient,
     message_id: str
 ) -> dict[str, Any]:
     """
@@ -126,12 +126,12 @@ async def get_forward_msg(
 
 @registry.register()
 async def send_private_forward_msg(
-    client: NapCatClient,
+    client: LLOneBotClient,
     user_id: int,
     messages: list
 ) -> dict[str, Any]:
     """
-    将多条消息打包为一张合并转发聊天记录卡片发送给指定好友 (NapCat OneBot 11: send_private_forward_msg)。
+    将多条消息打包为一张合并转发聊天记录卡片发送给指定好友 (LLOneBot OneBot 11: send_private_forward_msg)。
     适用场景：向个人好友汇总转发多条历史聊天记录或长篇多段内容。不适用与替代：发送单条普通私聊消息请改用 `send_private_msg`；向 QQ 群发送合并转发请改用 `send_group_forward_msg`。
     参数约束与行为：`messages` 须为包含 `type='node'` 的节点字典列表；非幂等发送操作，成功返回 `data.message_id`。
     :param user_id: 接收方好友的 QQ 号（正整数）
@@ -145,12 +145,12 @@ async def send_private_forward_msg(
 
 @registry.register()
 async def send_group_forward_msg(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     messages: list
 ) -> dict[str, Any]:
     """
-    将多条消息打包为一张合并转发聊天记录卡片发送至指定 QQ 群 (NapCat OneBot 11: send_group_forward_msg)。
+    将多条消息打包为一张合并转发聊天记录卡片发送至指定 QQ 群 (LLOneBot OneBot 11: send_group_forward_msg)。
     适用场景：向群聊批量转发多条消息记录以避免刷屏。不适用与替代：发送单条群通知请改用 `send_group_msg`；向个人好友发送合并转发请改用 `send_private_forward_msg`。
     参数约束与行为：`messages` 须为非空的 `node` 节点数组；非幂等群发操作，需当前账号在该群未被禁言，成功返回 `data.message_id`。
     :param group_id: 目标 QQ 群号（正整数）
@@ -164,7 +164,7 @@ async def send_group_forward_msg(
 
 @registry.register()
 async def send_like(
-    client: NapCatClient,
+    client: LLOneBotClient,
     user_id: int,
     times: int = 10
 ) -> dict[str, Any]:
@@ -183,12 +183,12 @@ async def send_like(
 
 @registry.register()
 async def send_poke(
-    client: NapCatClient,
+    client: LLOneBotClient,
     user_id: int,
     group_id: Optional[int] = None
 ) -> dict[str, Any]:
     """
-    向指定 QQ 用户发送“戳一戳”轻量级互动提醒，支持私聊戳一戳或群内戳指定成员 (NapCat 扩展接口: send_poke)。
+    向指定 QQ 用户发送“戳一戳”轻量级互动提醒，支持私聊戳一戳或群内戳指定成员 (LLOneBot 扩展接口: send_poke)。
     适用场景：在不发送文字消息的情况下触发系统级的“戳了戳你”提示。不适用与替代：如需发送带正文的消息或 @提醒，请改用 `send_private_msg` 或 `send_group_msg`。
     参数交互与行为：传 `group_id` 时在对应群聊内戳 `user_id`，省略 `group_id` 时发起私聊戳一戳；非幂等操作，频繁调用可能触发客户端冷却限制。
     :param user_id: 被戳的目标用户 QQ 号（正整数）
@@ -202,13 +202,13 @@ async def send_poke(
 
 @registry.register()
 async def set_msg_emoji_like(
-    client: NapCatClient,
+    client: LLOneBotClient,
     message_id: int,
     emoji_id: int,
     set_like: bool = True
 ) -> dict[str, Any]:
     """
-    对指定的群聊或私聊消息添加或移除贴表情回应 (NapCat 扩展接口: set_msg_emoji_like)。
+    对指定的群聊或私聊消息添加或移除贴表情回应 (LLOneBot 扩展接口: set_msg_emoji_like)。
     适用场景：用表情符号（如点赞👍）对某条消息作轻量级反馈。不适用与替代：若需给用户个人主页资料卡点赞，请改用 `send_like`。
     参数约束与行为：`set_like=True` 为贴上表情，`False` 为取消已贴表情；该操作具有幂等性，重复设置同一状态不会产生额外副作用。
     :param message_id: 目标消息的整数 ID
@@ -224,13 +224,13 @@ async def set_msg_emoji_like(
 
 @registry.register()
 async def mark_msg_as_read(
-    client: NapCatClient,
+    client: LLOneBotClient,
     message_id: Optional[int] = None,
     user_id: Optional[int] = None,
     group_id: Optional[int] = None
 ) -> dict[str, Any]:
     """
-    清除指定单条消息、好友私聊会话或群聊会话的未读红点状态 (NapCat 扩展接口: mark_msg_as_read)。
+    清除指定单条消息、好友私聊会话或群聊会话的未读红点状态 (LLOneBot 扩展接口: mark_msg_as_read)。
     适用场景：处理完实时消息后同步清除 QQ 客户端上的未读计数。不适用与替代：本工具不会清空本地 MCP 内存缓存池；如需清空内存消息缓冲，请改用 `clear_recent_messages_buffer`。
     参数交互与行为：至少应提供 `message_id`、`user_id` 或 `group_id` 之一（仅传 `group_id` 清除整群未读，仅传 `user_id` 清除该私聊未读）；幂等操作，无破坏性副作用。
     :param message_id: 要标记已读的具体消息 ID（可选）
@@ -253,11 +253,11 @@ async def mark_msg_as_read(
 
 @registry.register()
 async def set_essence_msg(
-    client: NapCatClient,
+    client: LLOneBotClient,
     message_id: int
 ) -> dict[str, Any]:
     """
-    将指定的群聊消息添加到群精华消息列表 (NapCat 扩展接口: set_essence_msg)。
+    将指定的群聊消息添加到群精华消息列表 (LLOneBot 扩展接口: set_essence_msg)。
     适用场景：将群内重要通知或优质发言固定到群精华区。不适用与替代：若需取消精华状态请改用 `delete_essence_msg`；若需设为强制弹窗的群待办请改用 `set_group_todo`。
     行为与权限：幂等修改操作；前置要求当前账号在该群拥有管理员或群主权限，普通群成员调用将返回权限错误。
     :param message_id: 要设为群精华的群聊消息整数 ID
@@ -267,11 +267,11 @@ async def set_essence_msg(
 
 @registry.register()
 async def delete_essence_msg(
-    client: NapCatClient,
+    client: LLOneBotClient,
     message_id: int
 ) -> dict[str, Any]:
     """
-    将指定消息从 QQ 群精华消息列表中移除，保留原群聊消息不被撤回 (NapCat 扩展接口: delete_essence_msg)。
+    将指定消息从 QQ 群精华消息列表中移除，保留原群聊消息不被撤回 (LLOneBot 扩展接口: delete_essence_msg)。
     适用场景：清理过期的群精华条目。不适用与替代：若需从群聊记录中彻底撤回该消息，请改用 `delete_msg`；若需新增群精华，请改用 `set_essence_msg`。
     行为与权限：前置要求当前账号具备该群管理员或群主权限，且目标消息当前已处于精华列表中（可通过 `get_essence_msg_list` 查询）。
     :param message_id: 要移出群精华列表的目标消息整数 ID
@@ -281,11 +281,11 @@ async def delete_essence_msg(
 
 @registry.register()
 async def get_essence_msg_list(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int
 ) -> dict[str, Any]:
     """
-    获取指定 QQ 群当前的全部精华消息列表 (NapCat 扩展接口: get_essence_msg_list)。
+    获取指定 QQ 群当前的全部精华消息列表 (LLOneBot 扩展接口: get_essence_msg_list)。
     适用场景：查阅群内沉淀的精华通知或获取 `message_id` 以便调用 `delete_essence_msg` 管理精华。不适用与替代：查询常规群聊历史消息请改用 `get_group_msg_history`。
     行为与返回：纯只读无副作用查询；返回包含发送者、设精人、设精时间及消息 ID 的数组。
     :param group_id: 目标 QQ 群号（正整数）

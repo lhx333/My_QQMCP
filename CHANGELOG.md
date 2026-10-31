@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.0.0] - 2026-10-31
+
+### Changed
+- Replaced the NapCatQQ backend with LLOneBot (LuckyLillia / LLBot). Runtime detection, configuration, deployment, process control and QR login now target LLBot CLI / Desktop / LiteLoaderQQNT layouts.
+- Writes LLOneBot `default_config.json` and `data/config_<uin>.json` using the `ob11.connect` HTTP/WS schema, including `webui` port 3080.
+- Switched the default MCP transport from local stdio to Streamable HTTP: single `/mcp` endpoint, `Mcp-Session-Id`, GET SSE, DELETE session termination, `MCP-Protocol-Version` negotiation, Origin checks and optional Bearer authentication.
+- Renamed lifecycle/passthrough tools to LLOneBot names; retained 8 NapCat tool names as compatibility aliases. Core profile now exposes 26 tools and full profile 82.
+
+### Added
+- `/health` endpoint, `--stateless` mode, `LLONEBOT_MCP_*` environment variables, and Streamable HTTP end-to-end tests.
+- Platform-aware LLBot release asset selection and `llbot_version.json` marker.
+- WebUI URL returned by login/start diagnostics.
+
+### Fixed
+- No longer kills the user's standalone QQ processes when starting LLOneBot.
+- Process cleanup only matches LLBot/PMHQ processes or `node <install>/llbot.js` within known installation roots.
+- Deployment preserves the LLBot `data/` directory (accounts, sessions, Token, logs) and rolls back on configuration or health-check failure.
+- Cancelled stdio requests that never started still receive a `-32800` response.
+
 ## [1.2.2] - 2026-10-28
 
 ### Fixed

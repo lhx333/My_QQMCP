@@ -3,12 +3,12 @@
 """
 from typing import Any, Optional
 from . import registry
-from ..client import NapCatClient
+from ..client import LLOneBotClient
 
 
 @registry.register()
 async def get_friend_list(
-    client: NapCatClient,
+    client: LLOneBotClient,
     no_cache: bool = False
 ) -> dict[str, Any]:
     """
@@ -22,10 +22,10 @@ async def get_friend_list(
 
 @registry.register()
 async def get_friends_with_category(
-    client: NapCatClient
+    client: LLOneBotClient
 ) -> dict[str, Any]:
     """
-    获取按 QQ 好友分组归类组织的层级式好友列表 (NapCat 扩展接口: get_friends_with_category)。
+    获取按 QQ 好友分组归类组织的层级式好友列表 (LLOneBot 扩展接口: get_friends_with_category)。
     适用场景：需要了解某个好友所属分组名称或按分组筛选好友时调用。不适用与替代：若仅需扁平的全部好友数组以快速检索 `user_id`，请改用结构更简单的 `get_friend_list`。
     行为与返回：纯只读无副作用操作；返回包含各分组 ID、分组名称及组内好友列表的数组。
     """
@@ -34,7 +34,7 @@ async def get_friends_with_category(
 
 @registry.register()
 async def get_stranger_info(
-    client: NapCatClient,
+    client: LLOneBotClient,
     user_id: int,
     no_cache: bool = False
 ) -> dict[str, Any]:
@@ -53,7 +53,7 @@ async def get_stranger_info(
 
 @registry.register()
 async def delete_friend(
-    client: NapCatClient,
+    client: LLOneBotClient,
     user_id: int
 ) -> dict[str, Any]:
     """
@@ -67,12 +67,12 @@ async def delete_friend(
 
 @registry.register()
 async def set_friend_remark(
-    client: NapCatClient,
+    client: LLOneBotClient,
     user_id: int,
     remark: str
 ) -> dict[str, Any]:
     """
-    设置或修改当前账号对指定 QQ 好友的专属备注名 (NapCat 扩展接口: set_friend_remark)。
+    设置或修改当前账号对指定 QQ 好友的专属备注名 (LLOneBot 扩展接口: set_friend_remark)。
     适用场景：为好友添加姓名备注以便后续识别。不适用与替代：若需修改群成员在群内的群名片，请改用 `set_group_card`；若需修改机器人自己的个人昵称，请改用 `set_qq_profile`。
     行为与权限：幂等覆盖操作（仅自己可见）；前置要求目标 `user_id` 已经是当前账号的好友。
     :param user_id: 目标好友的 QQ 号（正整数）
@@ -86,7 +86,7 @@ async def set_friend_remark(
 
 @registry.register()
 async def set_friend_add_request(
-    client: NapCatClient,
+    client: LLOneBotClient,
     flag: str,
     approve: bool = True,
     remark: str = ""
@@ -108,13 +108,13 @@ async def set_friend_add_request(
 
 @registry.register()
 async def set_qq_profile(
-    client: NapCatClient,
+    client: LLOneBotClient,
     nickname: Optional[str] = None,
     personal_note: Optional[str] = None,
     sex: Optional[int] = None
 ) -> dict[str, Any]:
     """
-    修改当前登录 QQ 账号自身的个人资料，支持更新昵称、个人说明及性别 (NapCat 扩展接口: set_qq_profile)。
+    修改当前登录 QQ 账号自身的个人资料，支持更新昵称、个人说明及性别 (LLOneBot 扩展接口: set_qq_profile)。
     适用场景：更新机器人账号自身的公开资料卡信息。不适用与替代：若仅需更新个性签名可使用 `set_self_longnick`；若需更换个人头像请改用 `set_qq_avatar`。
     参数约束与行为：未传入的可选字段将保持原值或按协议端默认处理；幂等设置操作，要求当前账号已在线。
     :param nickname: 新的个人 QQ 昵称（可选）
@@ -133,11 +133,11 @@ async def set_qq_profile(
 
 @registry.register()
 async def set_qq_avatar(
-    client: NapCatClient,
+    client: LLOneBotClient,
     file: str
 ) -> dict[str, Any]:
     """
-    更换当前登录 QQ 账号自身的个人头像图片 (NapCat 扩展接口: set_qq_avatar)。
+    更换当前登录 QQ 账号自身的个人头像图片 (LLOneBot 扩展接口: set_qq_avatar)。
     适用场景：更新当前登录账号的个人头像。不适用与替代：若需修改某个 QQ 群的群聊头像，请改用 `set_group_portrait`。
     参数约束与行为：`file` 支持本机已存在的图片绝对路径、HTTP/HTTPS 图片链接或 `base64://` 字符串；幂等覆盖操作，立即对所有好友与群聊生效。
     :param file: 新个人头像图片源，支持本地文件绝对路径、HTTP URL 或 base64:// 编码字符串
@@ -147,11 +147,11 @@ async def set_qq_avatar(
 
 @registry.register()
 async def set_self_longnick(
-    client: NapCatClient,
+    client: LLOneBotClient,
     long_nick: str
 ) -> dict[str, Any]:
     """
-    设置或覆盖当前登录 QQ 账号的个性签名文本 (NapCat 扩展接口: set_self_longnick)。
+    设置或覆盖当前登录 QQ 账号的个性签名文本 (LLOneBot 扩展接口: set_self_longnick)。
     适用场景：单独更新当前账号展示在资料卡与列表中的个性签名。不适用与替代：若需同时修改个人昵称或性别，请改用 `set_qq_profile`；若需修改在线状态（如忙碌/隐身），请改用 `set_online_status`。
     行为与返回：幂等覆盖操作，新签名会直接替换原有签名；要求当前账号已登录在线。
     :param long_nick: 要设置的个性签名文本内容（传空字符串可清空签名）
@@ -161,14 +161,14 @@ async def set_self_longnick(
 
 @registry.register()
 async def set_online_status(
-    client: NapCatClient,
+    client: LLOneBotClient,
     status: int = 10,
     ext_status: int = 0,
     battery_status: int = 0
 ) -> dict[str, Any]:
     """
-    设置当前登录 QQ 账号的客户端在线状态及扩展状态图标 (NapCat 扩展接口: set_online_status)。
-    适用场景：切换在线、离开、隐身、忙碌或请勿打扰等状态。不适用与替代：本工具仅改变状态显示图标，不会启动或停止后台服务进程；如需切换登录的 QQ 号或启停服务，请改用 `switch_qq_account` 或 `stop_napcat_service`。
+    设置当前登录 QQ 账号的客户端在线状态及扩展状态图标 (LLOneBot 扩展接口: set_online_status)。
+    适用场景：切换在线、离开、隐身、忙碌或请勿打扰等状态。不适用与替代：本工具仅改变状态显示图标，不会启动或停止后台服务进程；如需切换登录的 QQ 号或启停服务，请改用 `switch_qq_account` 或 `stop_llonebot_service`。
     参数约束与行为：常用主状态码 `status` 为 `10`(在线)、`30`(离开)、`40`(隐身)、`50`(忙碌)、`60`(Q我吧)、`70`(请勿打扰)；幂等操作，要求账号已在线。
     :param status: 主在线状态码枚举：10(在线), 30(离开), 40(隐身), 50(忙碌), 60(Q我吧), 70(请勿打扰)，默认 10
     :param ext_status: 扩展自定义状态码（整数，0 表示无扩展状态），默认 0

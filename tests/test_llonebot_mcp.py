@@ -1,5 +1,5 @@
 """
-NapCat MCP Server 自动化单元测试与 stdio 协议端到端验证套件
+LLOneBot MCP Server 自动化单元测试与 stdio 兼容模式端到端验证套件
 """
 import os
 import sys
@@ -12,14 +12,14 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from napcat_mcp.server import NapCatMCPServer
-from napcat_mcp.message_buffer import MessageBuffer
+from llonebot_mcp.server import LLOneBotMCPServer
+from llonebot_mcp.message_buffer import MessageBuffer
 
 
-class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
+class TestLLOneBotMCP(unittest.IsolatedAsyncioTestCase):
 
     async def test_structured_message_segments_are_forwarded_unchanged(self):
-        from napcat_mcp.tools.messaging import send_private_msg, send_group_msg
+        from llonebot_mcp.tools.messaging import send_private_msg, send_group_msg
         client = type('Client', (), {'call_api': AsyncMock(return_value={'status':'ok'})})()
         message = [{'type':'face','data':{'id':'14'}},
                    {'type':'mface','data':{'emoji_id':'77','key':'k','summary':'微笑'}}]
@@ -38,13 +38,13 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         self.assertIn('商城表情:微笑', cleaned)
 
     async def asyncSetUp(self):
-        self.release_patch = patch('napcat_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={'reachable':False,'error':'offline test'}))
+        self.release_patch = patch('llonebot_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={'reachable':False,'error':'offline test'}))
         self.release_patch.start()
         self.addCleanup(self.release_patch.stop)
-        self.port_patch = patch('napcat_mcp.tools.env_lifecycle.is_port_listening',return_value=False)
+        self.port_patch = patch('llonebot_mcp.tools.env_lifecycle.is_port_listening',return_value=False)
         self.port_patch.start()
         self.addCleanup(self.port_patch.stop)
-        self.server = NapCatMCPServer()
+        self.server = LLOneBotMCPServer()
         # 测试中禁用自动拉起真实进程，防止单元测试产生副作用
         self.server.client.auto_heal = False
 
@@ -84,24 +84,28 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ping_resp["result"], {})
 
     async def test_02_tools_list_and_schemas(self):
-        """验证默认 20 个核心与本地工具及全量 74 个工具的注册、Annotations、OutputSchema 及 JSON Schema 合法性"""
+        """验证默认 26 个核心/兼容工具及全量 82 个工具的注册、Annotations、OutputSchema 及 JSON Schema 合法性"""
         resp = await self.server.handle_request({
             "jsonrpc": "2.0",
             "id": 3,
             "method": "tools/list"
         })
         core_tools = resp["result"]["tools"]
-        self.assertEqual(len(core_tools), 20)
+        self.assertEqual(len(core_tools), 26)
 
         core_names = {t["name"] for t in core_tools}
         expected_core = {
+            "check_llonebot_environment",
             "check_napcat_environment",
+            "deploy_or_update_llonebot",
             "deploy_or_update_napcat",
             "list_qq_accounts",
             "login_new_qq_by_qrcode",
             "get_login_qrcode_image",
             "switch_qq_account",
+            "start_llonebot_service",
             "start_napcat_service",
+            "stop_llonebot_service",
             "stop_napcat_service",
             "send_private_msg",
             "send_group_msg",
@@ -113,12 +117,14 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
             "get_recent_messages",
             "get_recent_notices_and_requests",
             "clear_recent_messages_buffer",
+            "call_llonebot_api",
             "call_napcat_api",
+            "list_supported_llonebot_actions",
             "list_supported_napcat_actions"
         }
         self.assertEqual(core_names, expected_core)
 
-        # 验证 OMNIQQ_TOOL_PROFILE=full 全量模式下暴露全部 74 个工具
+        # 验证 OMNIQQ_TOOL_PROFILE=full 全量模式下暴露全部 82 个工具（含 8 个旧名兼容别名）
         with patch.dict(os.environ, {"OMNIQQ_TOOL_PROFILE": "full"}):
             full_resp = await self.server.handle_request({
                 "jsonrpc": "2.0",
@@ -126,17 +132,19 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
                 "method": "tools/list"
             })
         all_tools = full_resp["result"]["tools"]
-        self.assertEqual(len(all_tools), 74)
+        self.assertEqual(len(all_tools), 82)
 
         all_names = {t["name"] for t in all_tools}
         self.assertTrue({
             "list_qq_accounts",
             "get_login_qrcode_image",
-            "start_napcat_service",
-            "stop_napcat_service",
-            "restart_napcat_service",
+            "start_llonebot_service",
+            "stop_llonebot_service",
+            "restart_llonebot_service",
             "set_group_kick",
             "set_group_ban",
+            "restart_napcat_service",
+            "get_napcat_status",
         }.issubset(all_names))
 
         for t in core_tools:
@@ -156,13 +164,13 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
                 self.assertIsInstance(t["annotations"].get(hint), bool)
 
     async def test_03_deploy_safety_gate(self):
-        """验证 deploy_or_update_napcat 在 confirmed=False 时严格拦截并返回预览"""
+        """验证 deploy_or_update_llonebot 在 confirmed=False 时严格拦截并返回预览"""
         resp = await self.server.handle_request({
             "jsonrpc": "2.0",
             "id": 4,
             "method": "tools/call",
             "params": {
-                "name": "deploy_or_update_napcat",
+                "name": "deploy_or_update_llonebot",
                 "arguments": {
                     "action": "deploy",
                     "confirmed": False
@@ -209,7 +217,7 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
             "id": 7,
             "method": "tools/call",
             "params": {
-                "name": "list_supported_napcat_actions",
+                "name": "list_supported_llonebot_actions",
                 "arguments": {"category": "all"}
             }
         })
@@ -218,7 +226,7 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         self.assertIn("messaging", payload["categories"])
         self.assertIn("group_management", payload["categories"])
 
-        # 验证 call_napcat_api 遇到未知 action 时返回 list_supported_napcat_actions 引导
+        # 验证 call_llonebot_api 遇到未知 action 时返回 list_supported_llonebot_actions 引导
         with patch.object(
             self.server.client,
             "call_api",
@@ -235,68 +243,74 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
                 "id": 71,
                 "method": "tools/call",
                 "params": {
-                    "name": "call_napcat_api",
+                    "name": "call_llonebot_api",
                     "arguments": {"action": "no_such_action_v2"}
                 }
             })
         bad_payload = json.loads(bad_resp["result"]["content"][0]["text"])
-        self.assertIn("list_supported_napcat_actions", bad_payload.get("advice", ""))
-        self.assertIn("list_supported_napcat_actions", bad_payload.get("message", ""))
+        self.assertIn("list_supported_llonebot_actions", bad_payload.get("advice", ""))
+        self.assertIn("list_supported_llonebot_actions", bad_payload.get("message", ""))
 
-    async def test_05b_kill_qq_before_start_and_export_qrcode_to_desktop(self):
-        """验证启动 NapCat 前自动结束 QQ.exe 进程，且检测到需要扫码登录时将二维码复制到桌面并提示用户"""
+    async def test_05b_start_llonebot_and_export_qrcode_to_desktop(self):
+        """验证启动 LLOneBot 时不误杀 QQ 进程，且检测到需要扫码登录时将二维码复制到桌面。"""
         import tempfile
         from pathlib import Path
         from unittest.mock import Mock
-        from napcat_mcp.config import kill_qq_processes, DESKTOP_QR_FILENAME
-
-        qq_proc = Mock(info={"pid": 9999, "name": "QQ.exe", "exe": r"C:\Program Files\Tencent\QQNT\QQ.exe"})
-        other_proc = Mock(info={"pid": 8888, "name": "chrome.exe", "exe": r"C:\Program Files\Google\Chrome\Application\chrome.exe"})
-        with patch("psutil.process_iter", return_value=[qq_proc, other_proc]), \
-             patch("napcat_mcp.config.time.sleep"):
-            self.assertEqual(kill_qq_processes(), 1)
-        qq_proc.kill.assert_called_once()
-        other_proc.kill.assert_not_called()
+        from llonebot_mcp.config import DESKTOP_QR_FILENAME
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            fake_node = tmp_path / "node.exe"
-            fake_index = tmp_path / "index.js"
-            fake_qr = tmp_path / "qrcode.png"
+            install = tmp_path / "llbot"
+            data_dir = install / "data"
+            data_dir.mkdir(parents=True)
+            (install / "llbot.js").write_bytes(b"entry")
+            (install / "default_config.json").write_text('{"ob11":{"enable":true,"connect":[]}}',
+                                                         encoding="utf-8")
+            fake_qr = data_dir / "qrcode.png"
             desktop_dir = tmp_path / "Desktop"
-            fake_node.write_bytes(b"node")
-            fake_index.write_bytes(b"index")
+            desktop_dir.mkdir()
+            launched = {"called": False}
 
-            def fake_popen(*args, **kwargs):
-                # 模拟 NapCat 启动后因未登录生成二维码图片
+            def fake_launch(*args, **kwargs):
+                launched["called"] = True
                 fake_qr.write_bytes(b"PNG_QR_DATA_" * 20)
-                return Mock()
+                return True, "started", Mock()
 
             with patch.multiple(
-                "napcat_mcp.client",
-                NODE_EXE=str(fake_node),
-                INDEX_JS=str(fake_index),
-                QR_CACHE_IMAGE=str(fake_qr),
+                "llonebot_mcp.client",
                 is_port_listening=lambda *a, **kw: False,
-                kill_qq_processes=Mock(return_value=1),
+                resolve_install_root=lambda: str(install),
+                is_llbot_installed=lambda *a, **kw: True,
                 ensure_onebot_token=lambda: "tok",
                 get_current_account=lambda: "123456",
                 ensure_onebot_config=lambda *a, **kw: True,
-                subprocess=Mock(
-                    STARTUPINFO=lambda: Mock(dwFlags=0, wShowWindow=0),
-                    STARTF_USESHOWWINDOW=1,
-                    Popen=fake_popen
-                ),
-            ), patch.dict(os.environ, {"OMNIQQ_DESKTOP_DIR": str(desktop_dir)}):
-                res = await self.server.client.start_napcat_process(uin="123456", wait_seconds=2)
+                launch_llonebot_process=fake_launch,
+                find_qrcode_image=lambda *a, **kw: str(fake_qr) if fake_qr.exists() else None,
+            ), patch("llonebot_mcp.config.get_desktop_dir", return_value=str(desktop_dir)):
+                res = await self.server.client.start_llonebot_process(uin="123456", wait_seconds=2)
 
             expected_desktop_qr = str(desktop_dir / DESKTOP_QR_FILENAME)
-            self.assertEqual(res["killed_qq_processes"], 1)
+            self.assertTrue(launched["called"])
             self.assertTrue(res["login_required"])
             self.assertEqual(res["desktop_qrcode_path"], expected_desktop_qr)
             self.assertTrue(os.path.exists(expected_desktop_qr))
             self.assertIn("桌面", res["message"])
             self.assertIn("扫描", res["message"])
+            self.assertIn("webui_url", res)
+            self.assertNotIn("killed_qq_processes", res)
+
+    async def test_05c_legacy_tool_names_remain_callable(self):
+        """验证 NapCat 旧工具名仍然可通过 tools/call 调用。"""
+        resp = await self.server.handle_request({
+            "jsonrpc": "2.0",
+            "id": 55,
+            "method": "tools/call",
+            "params": {"name": "list_supported_napcat_actions", "arguments": {"category": "all"}}
+        })
+        payload = json.loads(resp["result"]["content"][0]["text"])
+        self.assertGreaterEqual(payload["total_count"], 125)
+        legacy = self.server.registry.get_tool("check_napcat_environment")
+        self.assertEqual(legacy["compat_alias_of"], "check_llonebot_environment")
 
     async def test_06_message_buffer_and_hooks(self):
         """验证实时消息缓存池、CQ码净化、条件过滤与事件钩子机制"""
@@ -376,10 +390,10 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         self.assertIn("raw_event", async_received[0])
 
     async def test_07_stdio_subprocess_end_to_end(self):
-        """验证通过子进程 stdio 管道与 run_mcp.py 进行真实 JSON-RPC 交互"""
-        run_script = os.path.join(PROJECT_ROOT, "napcat_mcp", "run_mcp.py")
+        """验证通过子进程 stdio 兼容模式与 run_mcp.py 进行真实 JSON-RPC 交互"""
+        run_script = os.path.join(PROJECT_ROOT, "llonebot_mcp", "run_mcp.py")
         proc = subprocess.Popen(
-            [sys.executable, run_script],
+            [sys.executable, run_script, "--transport", "stdio"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

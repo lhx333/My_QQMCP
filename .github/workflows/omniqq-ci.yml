@@ -22,10 +22,10 @@ jobs:
           python -m pip install -r requirements.txt
       - name: Syntax and lint
         run: |
-          python -m compileall -q napcat_mcp
-          python -m flake8 napcat_mcp --select E4,E7,E9,F --exclude build,__pycache__
+          python -m compileall -q llonebot_mcp
+          python -m flake8 llonebot_mcp --select E4,E7,E9,F --exclude build,__pycache__
       - name: Type check core contracts
-        run: python -m mypy --follow-imports=silent --ignore-missing-imports napcat_mcp/tools/__init__.py napcat_mcp/audit.py
+        run: python -m mypy --follow-imports=silent --ignore-missing-imports llonebot_mcp/tools/__init__.py llonebot_mcp/audit.py llonebot_mcp/transport.py
       - name: Test
         run: python -X utf8 -m unittest discover -s tests -q
       - name: Dependency audit
@@ -39,7 +39,7 @@ jobs:
           $wheel = (Get-ChildItem dist\*.whl | Select-Object -First 1).FullName
           & "$env:RUNNER_TEMP\omniqq-smoke\Scripts\python.exe" -m pip install $wheel
           Push-Location $env:RUNNER_TEMP
-          & "$env:RUNNER_TEMP\omniqq-smoke\Scripts\python.exe" -c "from napcat_mcp.server import NapCatMCPServer; s=NapCatMCPServer(); assert len(s.registry.list_tools()) == 20 and len(s.registry.list_tools(include_all=True)) == 74"
+          & "$env:RUNNER_TEMP\omniqq-smoke\Scripts\python.exe" -c "from llonebot_mcp.server import LLOneBotMCPServer; s=LLOneBotMCPServer(); assert len(s.registry.list_tools()) == 26 and len(s.registry.list_tools(include_all=True)) == 82"
           Pop-Location
       - uses: actions/upload-artifact@v4
         with:

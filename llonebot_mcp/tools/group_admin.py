@@ -3,12 +3,12 @@
 """
 from typing import Any
 from . import registry
-from ..client import NapCatClient
+from ..client import LLOneBotClient
 
 
 @registry.register()
 async def set_group_kick(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     user_id: int,
     reject_add_request: bool = False
@@ -30,7 +30,7 @@ async def set_group_kick(
 
 @registry.register()
 async def set_group_ban(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     user_id: int,
     duration: int = 1800
@@ -52,7 +52,7 @@ async def set_group_ban(
 
 @registry.register()
 async def set_group_whole_ban(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     enable: bool = True
 ) -> dict[str, Any]:
@@ -71,7 +71,7 @@ async def set_group_whole_ban(
 
 @registry.register()
 async def set_group_admin(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     user_id: int,
     enable: bool = True
@@ -93,7 +93,7 @@ async def set_group_admin(
 
 @registry.register()
 async def set_group_card(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     user_id: int,
     card: str = ""
@@ -115,7 +115,7 @@ async def set_group_card(
 
 @registry.register()
 async def set_group_name(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     group_name: str
 ) -> dict[str, Any]:
@@ -134,7 +134,7 @@ async def set_group_name(
 
 @registry.register()
 async def set_group_special_title(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     user_id: int,
     special_title: str = "",
@@ -159,7 +159,7 @@ async def set_group_special_title(
 
 @registry.register()
 async def set_group_leave(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     is_dismiss: bool = False
 ) -> dict[str, Any]:
@@ -178,7 +178,7 @@ async def set_group_leave(
 
 @registry.register()
 async def set_group_add_request(
-    client: NapCatClient,
+    client: LLOneBotClient,
     flag: str,
     sub_type: str = "add",
     approve: bool = True,
@@ -203,12 +203,12 @@ async def set_group_add_request(
 
 @registry.register()
 async def set_group_todo(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     message_id: int
 ) -> dict[str, Any]:
     """
-    将群内的某条已有消息设置为全群顶置强提醒的“群待办”事项 (NapCat 扩展接口: set_group_todo)。
+    将群内的某条已有消息设置为全群顶置强提醒的“群待办”事项 (LLOneBot 扩展接口: set_group_todo)。
     适用场景：发送重要群通知后，将其 `message_id` 设为群待办以强化全员触达。不适用与替代：若仅需将消息收录进群精华区而不弹待办，请改用 `set_essence_msg`。
     行为与权限：会向全群成员触发客户端待办横幅提醒；前置要求当前账号具备该群管理员或群主权限。
     :param group_id: 目标 QQ 群号（正整数）
@@ -222,7 +222,7 @@ async def set_group_todo(
 
 @registry.register()
 async def set_group_portrait(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     file: str
 ) -> dict[str, Any]:
@@ -241,7 +241,7 @@ async def set_group_portrait(
 
 @registry.register()
 async def get_group_at_all_remain(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int
 ) -> dict[str, Any]:
     """
@@ -255,11 +255,11 @@ async def get_group_at_all_remain(
 
 @registry.register()
 async def get_group_shut_list(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int
 ) -> dict[str, Any]:
     """
-    查询指定 QQ 群内当前正处于被禁言状态的成员列表及到期时间 (NapCat 扩展接口: get_group_shut_list)。
+    查询指定 QQ 群内当前正处于被禁言状态的成员列表及到期时间 (LLOneBot 扩展接口: get_group_shut_list)。
     适用场景：核查群内有哪些成员被禁言以便调用 `set_group_ban(duration=0)` 解禁。不适用与替代：若需获取全群所有正常成员名单，请改用 `get_group_member_list`。
     行为与返回：纯只读无副作用查询；返回被禁言成员的 `uin`、昵称与解禁时间戳列表。
     :param group_id: 目标 QQ 群号（正整数）
@@ -269,7 +269,7 @@ async def get_group_shut_list(
 
 @registry.register()
 async def get_group_system_msg(
-    client: NapCatClient
+    client: LLOneBotClient
 ) -> dict[str, Any]:
     """
     从 QQ 服务器拉取群系统通知消息列表，包含待审批的加群申请 (`join_requests`) 与被邀请进群通知 (`invited_requests`) (OneBot 11: get_group_system_msg)。

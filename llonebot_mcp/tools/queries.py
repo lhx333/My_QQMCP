@@ -3,16 +3,16 @@
 """
 from typing import Any, Optional
 from . import registry
-from ..client import NapCatClient
+from ..client import LLOneBotClient
 
 
 @registry.register()
 async def get_login_info(
-    client: NapCatClient
+    client: LLOneBotClient
 ) -> dict[str, Any]:
     """
     获取当前在线 QQ 账号的基础身份信息，返回 `user_id`（QQ 号）与 `nickname`（昵称）(OneBot 11: get_login_info)。
-    适用场景：快速确认当前是哪个 QQ 号在线，或验证 OneBot 接口连通性。不适用与替代：若需检查本地所有已缓存的历史账号列表或运行时安装与 GitHub 最新版本对比，请改用 `check_napcat_environment`。
+    适用场景：快速确认当前是哪个 QQ 号在线，或验证 OneBot 接口连通性。不适用与替代：若需检查本地所有已缓存的历史账号列表或运行时安装与 GitHub 最新版本对比，请改用 `check_llonebot_environment`。
     行为与返回：纯只读无副作用操作；成功返回 `status='ok'` 及 `data: {"user_id": int, "nickname": str}`，若当前未登录或服务未启动则返回 `status='failed'` 及非 0 `retcode`。
     """
     return await client.call_api("get_login_info", {})
@@ -20,12 +20,12 @@ async def get_login_info(
 
 @registry.register()
 async def get_group_list(
-    client: NapCatClient,
+    client: LLOneBotClient,
     no_cache: bool = True
 ) -> dict[str, Any]:
     """
     获取当前登录 QQ 账号已加入的全部 QQ 群列表，包含每群的 `group_id`、`group_name`、`member_count` 与 `max_member_count` (OneBot 11: get_group_list)。
-    适用场景：在发送群消息或上传群文件前，根据群名称查找对应的 `group_id` 或遍历已加入的群聊。不适用与替代：若已知具体 `group_id` 仅需查询该单群的详细资料或需查询好友列表，请通过 `call_napcat_api` 调用 `get_group_info` 或 `get_friend_list`。
+    适用场景：在发送群消息或上传群文件前，根据群名称查找对应的 `group_id` 或遍历已加入的群聊。不适用与替代：若已知具体 `group_id` 仅需查询该单群的详细资料或需查询好友列表，请通过 `call_llonebot_api` 调用 `get_group_info` 或 `get_friend_list`。
     参数约束与行为：`no_cache=True`（默认）会强制向 QQ 服务器拉取最新群列表以确保新加入的群立即可见；纯只读无副作用操作，成功在 `data` 中返回群信息字典数组。
     :param no_cache: 为 True 时绕过本地缓存强制从服务器刷新最新群列表，为 False 时优先使用缓存，默认 True
     """
@@ -34,7 +34,7 @@ async def get_group_list(
 
 @registry.register()
 async def get_group_info(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     no_cache: bool = False
 ) -> dict[str, Any]:
@@ -53,7 +53,7 @@ async def get_group_info(
 
 @registry.register()
 async def get_group_member_info(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     user_id: int,
     no_cache: bool = False
@@ -75,7 +75,7 @@ async def get_group_member_info(
 
 @registry.register()
 async def get_group_member_list(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     no_cache: bool = False
 ) -> dict[str, Any]:
@@ -94,7 +94,7 @@ async def get_group_member_list(
 
 @registry.register()
 async def get_group_honor_info(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     honor_type: str = "all"
 ) -> dict[str, Any]:
@@ -113,14 +113,14 @@ async def get_group_honor_info(
 
 @registry.register()
 async def get_friend_msg_history(
-    client: NapCatClient,
+    client: LLOneBotClient,
     user_id: int,
     count: int = 20,
     message_seq: Optional[int] = None,
     reverse_order: bool = False
 ) -> dict[str, Any]:
     """
-    向 NapCat 协议端分页拉取与指定好友的私聊历史聊天记录 (NapCat OneBot 11: get_friend_msg_history)。
+    向 LLOneBot 协议端分页拉取与指定好友的私聊历史聊天记录 (LLOneBot OneBot 11: get_friend_msg_history)。
     适用场景：需要回溯 MCP 启动之前的历史私聊记录或核对过往双方对话。不适用与替代：若仅需读取近期收到的实时新消息（含群聊与私聊），请优先使用零网络开销的 `get_recent_messages`；若查询群聊历史，请改用 `get_group_msg_history`。
     参数约束与交互：向上翻页时，`message_seq` 游标必须填入上一页最早一条记录的 `message_id`（切勿填入返回记录中的 `message_seq` 字段），并配合 `reverse_order=True`。
     行为与返回：纯只读无副作用查询；成功返回 `data.messages` 历史消息数组。
@@ -141,14 +141,14 @@ async def get_friend_msg_history(
 
 @registry.register()
 async def get_group_msg_history(
-    client: NapCatClient,
+    client: LLOneBotClient,
     group_id: int,
     count: int = 20,
     message_seq: Optional[int] = None,
     reverse_order: bool = False
 ) -> dict[str, Any]:
     """
-    向 NapCat 协议端分页拉取指定 QQ 群的历史群聊消息记录 (NapCat OneBot 11: get_group_msg_history)。
+    向 LLOneBot 协议端分页拉取指定 QQ 群的历史群聊消息记录 (LLOneBot OneBot 11: get_group_msg_history)。
     适用场景：回溯群内历史聊天记录或查找服务启动前的群通知。不适用与替代：若仅需获取后台实时监听到的最新消息，请改用 `get_recent_messages`；若查询个人私聊历史，请改用 `get_friend_msg_history`。
     参数约束与交互：翻页游标 `message_seq` 必须填入上一页最早记录的 `message_id`（不要填返回对象的 `message_seq`），向旧消息翻页时设 `reverse_order=True`。
     行为与返回：纯只读无副作用操作；成功在 `data.messages` 中返回群消息数组。
@@ -169,11 +169,11 @@ async def get_group_msg_history(
 
 @registry.register()
 async def get_recent_contact(
-    client: NapCatClient,
+    client: LLOneBotClient,
     count: int = 20
 ) -> dict[str, Any]:
     """
-    获取当前 QQ 账号的最近联系会话列表（包含近期产生过交互的好友与群聊及最新消息摘要）(NapCat 扩展接口: get_recent_contact)。
+    获取当前 QQ 账号的最近联系会话列表（包含近期产生过交互的好友与群聊及最新消息摘要）(LLOneBot 扩展接口: get_recent_contact)。
     适用场景：查看最近活跃的聊天会话列表。不适用与替代：若需读取实时收到的完整消息正文与附件信息，请改用 `get_recent_messages`。
     行为与返回：纯只读查询；返回按最后活跃时间排序的最近会话数组。
     :param count: 返回的最近会话最大数量，默认 20
@@ -182,13 +182,13 @@ async def get_recent_contact(
 
 
 @registry.register()
-async def get_napcat_status(
-    client: NapCatClient
+async def get_llonebot_status(
+    client: LLOneBotClient
 ) -> dict[str, Any]:
     """
-    获取 NapCat OneBot 11 协议端的在线状态、版本信息及后台 WebSocket 监听器连接状态 (组合调用 get_status 与 get_version_info)。
-    适用场景：轻量级探测协议端在线状态与版本号。不适用与替代：若需全面检查本地运行时安装目录、缓存账号列表及 GitHub 最新版本更新对比，请改用 `check_napcat_environment`；若仅需获取当前登录 QQ 号与昵称，请改用 `get_login_info`。
-    行为与返回：纯只读无副作用操作；返回 `online_status`、`version_info` 与 `ws_listener_connected`。
+    获取 LLOneBot OneBot 11 协议端的在线状态、版本信息及后台 WebSocket 监听器连接状态 (组合调用 get_status 与 get_version_info)。
+    适用场景：轻量级探测协议端在线状态与版本号。不适用与替代：若需全面检查本地运行时安装目录、缓存账号列表及 GitHub 最新版本更新对比，请改用 `check_llonebot_environment`；若仅需获取当前登录 QQ 号与昵称，请改用 `get_login_info`。
+    行为与返回：纯只读无副作用操作；返回 `online_status`、`version_info` 与 `ws_listener_connected`。兼容旧工具名 `get_napcat_status`。
     """
     status_res = await client.call_api("get_status", {})
     ver_res = await client.call_api("get_version_info", {})
@@ -198,3 +198,7 @@ async def get_napcat_status(
         "version_info": ver_res.get("data"),
         "ws_listener_connected": client.is_ws_connected
     }
+
+
+# Python API 层的旧函数名兼容别名
+get_napcat_status = get_llonebot_status

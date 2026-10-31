@@ -1,8 +1,8 @@
-"""Local OneBot credential shared by NapCat, the service, and OmniQQ-MCP.
+"""Local OneBot credential shared by LLOneBot and OmniQQ-MCP.
 
 The token is kept outside the project and is never placed in Agent prompts or
 the project's YAML configuration. This is a best-effort boundary: an Agent
-running arbitrary commands as the same Windows user can still read it.
+running arbitrary commands as the same user can still read it.
 """
 import getpass
 import os
@@ -13,10 +13,10 @@ from pathlib import Path
 
 
 def token_path() -> Path:
-    explicit = os.environ.get('OMNIQQ_ONEBOT_TOKEN_FILE')
+    explicit = os.environ.get('OMNIQQ_ONEBOT_TOKEN_FILE') or os.environ.get('LLONEBOT_ONEBOT_TOKEN_FILE')
     if explicit:
         return Path(explicit).expanduser()
-    base = os.environ.get('LOCALAPPDATA') or str(Path.home() / 'AppData' / 'Local')
+    base = os.environ.get('LOCALAPPDATA') or os.path.join(Path.home(), '.local', 'share')
     return Path(base) / 'OmniQQ-MCP' / 'onebot-token'
 
 

@@ -78,3 +78,21 @@ nix run github:LLOneBot/llonebot.nix#pmhq
 ## 配置 PMHQ 授权令牌
 
 - 设置环境变量 `AUTH_TOKEN`，服务会将其作为 `--auth-token` 参数传给 PMHQ
+
+## 与 OmniQQ-MCP 集成
+
+本仓库根目录的 `llonebot_mcp` 是面向本 LLOneBot 后端的 MCP Server。启动 LLBot 后，将其 OneBot
+HTTP/WS 端口（默认 `3000`/`3001`）与 WebUI（`3080`）暴露给 MCP：
+
+```bash
+# 使用本仓库 Nix 沙盒
+nix run github:LLOneBot/llonebot.nix#sandbox
+
+# 启动远程 Streamable HTTP MCP（默认 http://127.0.0.1:8000/mcp）
+LLONEBOT_HTTP_URL=http://127.0.0.1:3000 \
+LLONEBOT_WS_URL=ws://127.0.0.1:3001 \
+python llonebot_mcp/run_mcp.py --host 127.0.0.1 --port 8000
+```
+
+Docker 部署时将 `3000`、`3001`、`3080` 端口映射到宿主机，并通过 `AUTH_TOKEN` 配置 PMHQ
+授权；MCP 侧使用 `LLONEBOT_HTTP_URL` / `LLONEBOT_WS_URL` 指向映射后的端口即可。

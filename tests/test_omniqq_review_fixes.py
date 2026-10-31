@@ -9,27 +9,27 @@ import zipfile
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-from napcat_mcp.client import NapCatClient
-from napcat_mcp.message_buffer import MessageBuffer
-from napcat_mcp.audit import record_activity
-from napcat_mcp.config import kill_napcat_processes, set_current_account
-from napcat_mcp.deployer import deploy_or_update_napcat
-from napcat_mcp.server import NapCatMCPServer
-from napcat_mcp.tools.env_lifecycle import check_napcat_environment
-from napcat_mcp.tools.passthrough import NAPCAT_ALL_ACTIONS
+from llonebot_mcp.client import LLOneBotClient
+from llonebot_mcp.message_buffer import MessageBuffer
+from llonebot_mcp.audit import record_activity
+from llonebot_mcp.config import kill_llonebot_processes, set_current_account
+from llonebot_mcp.deployer import deploy_or_update_llonebot
+from llonebot_mcp.server import LLOneBotMCPServer
+from llonebot_mcp.tools.env_lifecycle import check_llonebot_environment
+from llonebot_mcp.tools.passthrough import LLONEBOT_ALL_ACTIONS
 
 
 class OmniQQReviewFixes(unittest.IsolatedAsyncioTestCase):
     async def test_protocol_negotiates_to_implemented_version(self):
-        server = NapCatMCPServer(client=NapCatClient(auto_heal=False))
+        server = LLOneBotMCPServer(client=LLOneBotClient(auto_heal=False))
         result = await server.handle_request({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
                                               'params': {'protocolVersion': '2099-01-01'}})
-        self.assertEqual(result['result']['protocolVersion'], '2024-11-05')
+        self.assertEqual(result['result']['protocolVersion'], '2025-06-18')
         await server.client.close()
 
     async def test_stdio_processes_ping_during_slow_request(self):
         import asyncio
-        server = NapCatMCPServer(client=NapCatClient(auto_heal=False))
+        server = LLOneBotMCPServer(client=LLOneBotClient(auto_heal=False))
         async def slow():
             await asyncio.sleep(0.15)
             return {'status': 'ok'}
@@ -39,7 +39,7 @@ class OmniQQReviewFixes(unittest.IsolatedAsyncioTestCase):
             {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {'name': 'slow_test'}},
             {'jsonrpc': '2.0', 'id': 2, 'method': 'ping'}]))
         output = io.StringIO()
-        with patch('napcat_mcp.server.sys.stdin', source), patch('napcat_mcp.server.sys.stdout', output), \
+        with patch('llonebot_mcp.server.sys.stdin', source), patch('llonebot_mcp.server.sys.stdout', output), \
              patch.object(server.client, 'start_background_ws'):
             await server.run_stdio()
         replies = [__import__('json').loads(line) for line in output.getvalue().splitlines()]
@@ -48,7 +48,7 @@ class OmniQQReviewFixes(unittest.IsolatedAsyncioTestCase):
     async def test_cancel_notification_cancels_read_only_request(self):
         import asyncio
         import json
-        server = NapCatMCPServer(client=NapCatClient(auto_heal=False))
+        server = LLOneBotMCPServer(client=LLOneBotClient(auto_heal=False))
         async def slow():
             await asyncio.sleep(1)
             return {'status': 'ok'}
@@ -60,7 +60,7 @@ class OmniQQReviewFixes(unittest.IsolatedAsyncioTestCase):
             {'jsonrpc': '2.0', 'id': 2, 'method': 'ping'}]
         source = io.StringIO(''.join(json.dumps(item) + '\n' for item in requests))
         output = io.StringIO()
-        with patch('napcat_mcp.server.sys.stdin', source), patch('napcat_mcp.server.sys.stdout', output), \
+        with patch('llonebot_mcp.server.sys.stdin', source), patch('llonebot_mcp.server.sys.stdout', output), \
              patch.object(server.client, 'start_background_ws'):
             await server.run_stdio()
         replies = {item['id']: item for item in map(json.loads, output.getvalue().splitlines())}
@@ -82,61 +82,71 @@ class OmniQQReviewFixes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(observed, [0, 1, 2])
 
     async def test_external_url_skips_local_runtime(self):
-        client = NapCatClient(http_url='https://onebot.example.org', auto_heal=True)
+        client = LLOneBotClient(http_url='https://onebot.example.org', auto_heal=True)
         self.assertFalse(client.uses_local_runtime())
         with patch.object(client, 'call_api', AsyncMock(return_value={'status': 'ok', 'retcode': 0})) as probe, \
-             patch('napcat_mcp.tools.env_lifecycle.is_port_listening', side_effect=AssertionError('local port checked')):
-            result = await check_napcat_environment(client)
+             patch('llonebot_mcp.tools.env_lifecycle.is_port_listening', side_effect=AssertionError('local port checked')):
+            result = await check_llonebot_environment(client)
         self.assertEqual(result['mode'], 'external')
         probe.assert_awaited_once()
-        self.assertEqual((await client.start_napcat_process())['status'], 'failed')
+        self.assertEqual((await client.start_llonebot_process())['status'], 'failed')
         await client.close()
 
     async def test_config_failure_rolls_back_upgrade(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            installed = root / 'shell_node'
+            installed = root / 'llbot'
             installed.mkdir()
-            (installed / 'node.exe').write_bytes(b'old')
-            (installed / 'index.js').write_bytes(b'old-index')
+            (installed / 'llbot.js').write_bytes(b'old-entry')
+            (installed / 'default_config.json').write_text('{"ob11":{"enable":true,"connect":[]}}',
+                                                           encoding='utf-8')
             archive = root / 'offline.zip'
             with zipfile.ZipFile(archive, 'w') as package:
-                package.writestr('node.exe', b'new')
-                package.writestr('index.js', b'new-index')
-            with patch.multiple('napcat_mcp.deployer', RUNTIME_DIR=str(root), SHELL_NODE_DIR=str(installed),
-                                NODE_EXE=str(installed / 'node.exe'), INDEX_JS=str(installed / 'index.js'),
-                                LOCAL_RELEASE_ZIP=str(archive)), \
-                 patch('napcat_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
-                 patch('napcat_mcp.deployer.kill_napcat_processes'), \
-                 patch('napcat_mcp.deployer.get_current_account', return_value='123456'), \
-                 patch('napcat_mcp.deployer.ensure_onebot_config', return_value=False):
-                result = await deploy_or_update_napcat(confirmed=True)
+                package.writestr('llbot.js', b'new-entry')
+                package.writestr('default_config.json', b'{"ob11":{"enable":true,"connect":[]}}')
+            deploy_patches = dict(RUNTIME_DIR=str(root), LLBOT_HOME=str(installed),
+                                  LLBOT_CONFIG_DIR=str(installed), LLBOT_DATA_DIR=str(installed / 'data'),
+                                  LLBOT_DEFAULT_CONFIG=str(installed / 'default_config.json'),
+                                  LLBOT_ENTRY_JS=str(installed / 'llbot.js'),
+                                  LLBOT_EXECUTABLE=None, LLBOT_LAUNCHER=None,
+                                  LLBOT_OFFLINE_ZIP=str(archive), LOCAL_RELEASE_ZIP=str(archive))
+            with patch.multiple('llonebot_mcp.deployer', **deploy_patches), \
+                 patch('llonebot_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
+                 patch('llonebot_mcp.deployer.kill_llonebot_processes'), \
+                 patch('llonebot_mcp.deployer.get_current_account', return_value='123456'), \
+                 patch('llonebot_mcp.deployer.ensure_onebot_config', return_value=False):
+                result = await deploy_or_update_llonebot(confirmed=True)
             self.assertEqual(result['status'], 'failed')
             self.assertTrue(result['rolled_back'])
-            self.assertEqual((installed / 'node.exe').read_bytes(), b'old')
+            self.assertEqual((installed / 'llbot.js').read_bytes(), b'old-entry')
 
     async def test_health_failure_rolls_back_upgrade(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            installed = root / 'shell_node'
+            installed = root / 'llbot'
             installed.mkdir()
-            (installed / 'node.exe').write_bytes(b'old')
-            (installed / 'index.js').write_bytes(b'old-index')
+            (installed / 'llbot.js').write_bytes(b'old-entry')
+            (installed / 'default_config.json').write_text('{"ob11":{"enable":true,"connect":[]}}',
+                                                           encoding='utf-8')
             archive = root / 'offline.zip'
             with zipfile.ZipFile(archive, 'w') as package:
-                package.writestr('node.exe', b'new')
-                package.writestr('index.js', b'new-index')
-            with patch.multiple('napcat_mcp.deployer', RUNTIME_DIR=str(root), SHELL_NODE_DIR=str(installed),
-                                NODE_EXE=str(installed / 'node.exe'), INDEX_JS=str(installed / 'index.js'),
-                                LOCAL_RELEASE_ZIP=str(archive)), \
-                 patch('napcat_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
-                 patch('napcat_mcp.deployer.kill_napcat_processes'), \
-                 patch('napcat_mcp.deployer.get_current_account', return_value=''), \
-                 patch('napcat_mcp.deployer.check_installed_runtime', side_effect=RuntimeError('bad node')):
-                result = await deploy_or_update_napcat(confirmed=True)
+                package.writestr('llbot.js', b'new-entry')
+                package.writestr('default_config.json', b'{"ob11":{"enable":true,"connect":[]}}')
+            deploy_patches = dict(RUNTIME_DIR=str(root), LLBOT_HOME=str(installed),
+                                  LLBOT_CONFIG_DIR=str(installed), LLBOT_DATA_DIR=str(installed / 'data'),
+                                  LLBOT_DEFAULT_CONFIG=str(installed / 'default_config.json'),
+                                  LLBOT_ENTRY_JS=str(installed / 'llbot.js'),
+                                  LLBOT_EXECUTABLE=None, LLBOT_LAUNCHER=None,
+                                  LLBOT_OFFLINE_ZIP=str(archive), LOCAL_RELEASE_ZIP=str(archive))
+            with patch.multiple('llonebot_mcp.deployer', **deploy_patches), \
+                 patch('llonebot_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
+                 patch('llonebot_mcp.deployer.kill_llonebot_processes'), \
+                 patch('llonebot_mcp.deployer.get_current_account', return_value=''), \
+                 patch('llonebot_mcp.deployer.check_installed_runtime', side_effect=RuntimeError('bad entry')):
+                result = await deploy_or_update_llonebot(confirmed=True)
             self.assertEqual(result['status'], 'failed')
             self.assertTrue(result['rolled_back'])
-            self.assertEqual((installed / 'node.exe').read_bytes(), b'old')
+            self.assertEqual((installed / 'llbot.js').read_bytes(), b'old-entry')
 
 
 class OmniQQStaticReviewFixes(unittest.TestCase):
@@ -157,7 +167,7 @@ class OmniQQStaticReviewFixes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'activity.jsonl'
             with patch.dict(os.environ, {'OMNIQQ_ACTIVITY_LOG': str(path)}), \
-                 patch('napcat_mcp.audit._MAX_AUDIT_BYTES', 1):
+                 patch('llonebot_mcp.audit._MAX_AUDIT_BYTES', 1):
                 record_activity('ping', status='ok')
                 record_activity('ping', status='ok')
             self.assertTrue(path.exists())
@@ -174,7 +184,8 @@ class OmniQQStaticReviewFixes(unittest.TestCase):
 
     def test_stdio_survives_malformed_requests(self):
         entry = Path(__file__).resolve().parent.parent / 'run_mcp.py'
-        result = subprocess.run([sys.executable, str(entry)], input='{broken\n[]\n{"jsonrpc":"2.0","id":7,"method":"ping"}\n',
+        result = subprocess.run([sys.executable, str(entry), '--transport', 'stdio'],
+                                input='{broken\n[]\n{"jsonrpc":"2.0","id":7,"method":"ping"}\n',
                                 text=True, capture_output=True, encoding='utf-8', timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         import json
@@ -182,44 +193,45 @@ class OmniQQStaticReviewFixes(unittest.TestCase):
         self.assertEqual([reply.get('error', {}).get('code') for reply in replies[:2]], [-32700, -32600])
         self.assertEqual(replies[2]['result'], {})
 
-    def test_failed_webui_write_does_not_commit_account(self):
+    def test_failed_config_write_does_not_commit_account(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             account = root / 'current.txt'
             account.write_text('111111\n', encoding='utf-8')
-            (root / 'webui.json').write_text('{}', encoding='utf-8')
-            with patch('napcat_mcp.config.CURRENT_ACCOUNT_FILE', str(account)), \
-                 patch('napcat_mcp.config.NAPCAT_CONFIG_DIR', str(root)), \
-                 patch('napcat_mcp.config.ensure_onebot_config', return_value=True), \
-                 patch('napcat_mcp.config.atomic_json', side_effect=OSError('read only')):
+            with patch('llonebot_mcp.config.CURRENT_ACCOUNT_FILE', str(account)), \
+                 patch('llonebot_mcp.config.ensure_onebot_config', return_value=False):
                 self.assertFalse(set_current_account('222222'))
             self.assertEqual(account.read_text(encoding='utf-8'), '111111\n')
 
-    def test_process_cleanup_requires_exact_exe_and_entry(self):
+    def test_process_cleanup_requires_llbot_entry_inside_install_root(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            exe, entry = root / 'node.exe', root / 'index.js'
-            correct = Mock(info={'name': 'node.exe', 'exe': str(exe), 'cwd': str(root),
-                                 'cmdline': [str(exe), str(entry)]})
-            unrelated = Mock(info={'name': 'node.exe', 'exe': str(exe), 'cwd': str(root),
-                                   'cmdline': [str(exe), str(root / 'other.js')]})
-            with patch('napcat_mcp.config.NODE_EXE', str(exe)), \
-                 patch('napcat_mcp.config.INDEX_JS', str(entry)), \
-                 patch('psutil.process_iter', return_value=[correct, unrelated]), \
-                 patch('napcat_mcp.config.time.sleep'):
-                self.assertEqual(kill_napcat_processes(), 1)
+            entry = root / 'llbot.js'
+            entry.write_text('entry', encoding='utf-8')
+            correct = Mock(info={'name': 'node', 'exe': '/usr/bin/node', 'cwd': str(root),
+                                 'cmdline': ['/usr/bin/node', str(entry)]})
+            unrelated = Mock(info={'name': 'node', 'exe': '/usr/bin/node', 'cwd': str(root),
+                                   'cmdline': ['/usr/bin/node', str(root / 'other.js')]})
+            outside = Mock(info={'name': 'node', 'exe': '/usr/bin/node', 'cwd': '/tmp',
+                                 'cmdline': ['/usr/bin/node', '/tmp/unrelated.js']})
+            with patch('llonebot_mcp.config.LLBOT_HOME', str(root)), \
+                 patch('llonebot_mcp.config.find_installations', return_value=[str(root)]), \
+                 patch('psutil.process_iter', return_value=[correct, unrelated, outside]), \
+                 patch('llonebot_mcp.config.time.sleep'):
+                self.assertEqual(kill_llonebot_processes(), 1)
             correct.kill.assert_called_once()
             unrelated.kill.assert_not_called()
+            outside.kill.assert_not_called()
 
     def test_catalog_contains_named_actions(self):
         import ast
-        tools = Path(__file__).resolve().parent.parent / 'napcat_mcp' / 'tools'
+        tools = Path(__file__).resolve().parent.parent / 'llonebot_mcp' / 'tools'
         named = {call.args[0].value for path in tools.glob('*.py')
                  for call in ast.walk(ast.parse(path.read_text(encoding='utf-8')))
                  if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
                  and call.func.attr == 'call_api' and call.args
                  and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str)}
-        listed = {action for actions in NAPCAT_ALL_ACTIONS.values() for action in actions}
+        listed = {action for actions in LLONEBOT_ALL_ACTIONS.values() for action in actions}
         self.assertFalse(named - listed, named - listed)
 
 

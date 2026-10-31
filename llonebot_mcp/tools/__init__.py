@@ -1,23 +1,25 @@
 """
-NapCat MCP 工具注册表与 Schema 自动生成器
-将 Python 异步函数自动映射为符合 MCP 标准规范的 Tool 定义、Annotations 与 JSON Schema。
+LLOneBot MCP 工具注册表与 Schema 自动生成器。
+将 Python 异步函数自动映射为符合 MCP 标准规范的 Tool 定义、Annotations 与 JSON Schema，
+并支持为 NapCat 旧工具名注册兼容别名。
 """
 import inspect
 import os
 import types
 from typing import Any, Callable, Dict, List, Optional, Union, get_type_hints, get_origin, get_args
 
-# 默认暴露的 20 个核心与纯本地工具（14 个高频核心工具 + 6 个无 OneBot HTTP 等价端点的纯本地工具）
-# 其余 54 个细分 OneBot 具名工具可通过 call_napcat_api 透传调用、直接传给 tools/call，或通过 OMNIQQ_TOOL_PROFILE=full 全量暴露
+# 默认暴露 20 个 LLOneBot 核心与纯本地工具；NapCat 旧名作为兼容别名一并列出。
+# 其余细分 OneBot 具名工具可通过 call_llonebot_api 透传调用、直接传给 tools/call，
+# 或通过 OMNIQQ_TOOL_PROFILE=full 全量暴露。
 CORE_TOOL_NAMES: tuple[str, ...] = (
-    "check_napcat_environment",
-    "deploy_or_update_napcat",
+    "check_llonebot_environment",
+    "deploy_or_update_llonebot",
     "list_qq_accounts",
     "login_new_qq_by_qrcode",
     "get_login_qrcode_image",
     "switch_qq_account",
-    "start_napcat_service",
-    "stop_napcat_service",
+    "start_llonebot_service",
+    "stop_llonebot_service",
     "send_private_msg",
     "send_group_msg",
     "delete_msg",
@@ -28,9 +30,21 @@ CORE_TOOL_NAMES: tuple[str, ...] = (
     "get_recent_messages",
     "get_recent_notices_and_requests",
     "clear_recent_messages_buffer",
-    "call_napcat_api",
-    "list_supported_napcat_actions",
+    "call_llonebot_api",
+    "list_supported_llonebot_actions",
 )
+
+# 旧 NapCat 工具名兼容别名，确保已有客户端无需修改即可继续调用。
+COMPAT_TOOL_ALIASES: dict[str, str] = {
+    "check_napcat_environment": "check_llonebot_environment",
+    "deploy_or_update_napcat": "deploy_or_update_llonebot",
+    "start_napcat_service": "start_llonebot_service",
+    "stop_napcat_service": "stop_llonebot_service",
+    "restart_napcat_service": "restart_llonebot_service",
+    "call_napcat_api": "call_llonebot_api",
+    "list_supported_napcat_actions": "list_supported_llonebot_actions",
+    "get_napcat_status": "get_llonebot_status",
+}
 
 DEFAULT_OUTPUT_SCHEMA: Dict[str, Any] = {
     "type": "object",
@@ -57,6 +71,7 @@ DEFAULT_OUTPUT_SCHEMA: Dict[str, Any] = {
 _LOCAL_READONLY_TOOLS = {
     "get_recent_messages",
     "get_recent_notices_and_requests",
+    "list_supported_llonebot_actions",
     "list_supported_napcat_actions",
     "get_login_qrcode_image",
 }
@@ -70,14 +85,20 @@ _DESTRUCTIVE_TOOLS = {
     "set_group_kick",
     "set_group_leave",
     "clear_recent_messages_buffer",
+    "stop_llonebot_service",
     "stop_napcat_service",
+    "call_llonebot_api",
     "call_napcat_api",
 }
 
 _IDEMPOTENT_MUTATION_TOOLS = {
     "clear_recent_messages_buffer",
+    "stop_llonebot_service",
     "stop_napcat_service",
+    "start_llonebot_service",
     "start_napcat_service",
+    "restart_llonebot_service",
+    "restart_napcat_service",
     "switch_qq_account",
     "mark_msg_as_read",
     "set_essence_msg",
@@ -164,6 +185,29 @@ class ToolRegistry:
             }
             return func
         return decorator
+
+    def register_alias(
+        self,
+        alias: str,
+        target: str,
+        description: Optional[str] = None,
+        core: Optional[bool] = None,
+    ) -> bool:
+        """注册旧工具名兼容别名，复用目标工具的处理函数与 Schema。"""
+        source = self._tools.get(target)
+        if not source:
+            return False
+        alias_desc = description or (
+            f"兼容别名（NapCat 旧工具名），行为等同 `{target}`。{source['description']}"
+        )
+        self._tools[alias] = {
+            **source,
+            "name": alias,
+            "description": alias_desc,
+            "compat_alias_of": target,
+            "core": bool(source.get("core", True)) if core is None else bool(core),
+        }
+        return True
 
     @staticmethod
     def _py_type_to_json_type(py_type: Any) -> Dict[str, Any]:
@@ -315,3 +359,24 @@ class ToolRegistry:
 
 # 全局单例注册表
 registry = ToolRegistry()
+
+_CORE_ALIAS_NAMES = {
+    "check_napcat_environment",
+    "deploy_or_update_napcat",
+    "start_napcat_service",
+    "stop_napcat_service",
+    "call_napcat_api",
+    "list_supported_napcat_actions",
+}
+
+
+def register_compat_aliases(target_registry: Optional[ToolRegistry] = None) -> int:
+    """在所有工具模块导入后注册 NapCat 旧工具名兼容别名。"""
+    target_registry = target_registry or registry
+    count = 0
+    for alias, canonical in COMPAT_TOOL_ALIASES.items():
+        if alias in target_registry.tools_map or canonical not in target_registry.tools_map:
+            continue
+        if target_registry.register_alias(alias, canonical, core=alias in _CORE_ALIAS_NAMES):
+            count += 1
+    return count

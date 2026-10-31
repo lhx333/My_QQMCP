@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 _audit_lock = threading.Lock()
-_logger = logging.getLogger('NapCatMCP.Audit')
+_logger = logging.getLogger('LLOneBotMCP.Audit')
 _MAX_AUDIT_BYTES = 10_000_000
 
 
@@ -23,7 +23,10 @@ def _safe_number(value):
 
 def activity_log_path() -> Path:
     from .config import USER_DATA_DIR
-    return Path(os.environ.get('OMNIQQ_ACTIVITY_LOG') or Path(USER_DATA_DIR) / 'logs' / 'mcp_activity.jsonl')
+    explicit = os.environ.get('OMNIQQ_ACTIVITY_LOG')
+    if explicit:
+        return Path(explicit)
+    return Path(USER_DATA_DIR) / 'logs' / 'mcp_activity.jsonl'
 
 
 def record_activity(tool, target=None, status=None, result=None, task_id=None, version=None,

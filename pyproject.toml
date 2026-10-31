@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omniqq-mcp"
-version = "1.2.2"
-description = "NapCat OneBot 11 MCP server with 74 tools, account-isolated events and concurrent requests"
+version = "2.0.0"
+description = "LLOneBot OneBot 11 MCP server with Streamable HTTP transport, 74 named tools and NapCat tool-name compatibility"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
@@ -15,8 +15,11 @@ keywords = [
     "mcp",
     "model-context-protocol",
     "mcp-server",
-    "napcat",
-    "napcatqq",
+    "streamable-http",
+    "remote-mcp",
+    "llonebot",
+    "llbot",
+    "lucky-lillia",
     "onebot",
     "onebot11",
     "qq-bot",
@@ -33,10 +36,10 @@ dependencies = [
 ]
 
 [project.scripts]
-omniqq-mcp = "napcat_mcp.run_mcp:main"
+omniqq-mcp = "llonebot_mcp.run_mcp:main"
 
 [tool.setuptools.packages.find]
-include = ["napcat_mcp", "napcat_mcp.tools"]
+include = ["llonebot_mcp", "llonebot_mcp.tools"]
 
 [tool.setuptools]
 include-package-data = false
