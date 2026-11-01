@@ -7,6 +7,7 @@ import asyncio
 import logging
 import random
 import subprocess
+import uuid
 from urllib.parse import urlsplit
 from typing import Any, Optional
 import aiohttp
@@ -59,6 +60,8 @@ class NapCatClient:
         self._running = False
         self._ws_connected = False
         self._start_lock = asyncio.Lock()
+        # HTTP API 不可用时（例如 NapCat 只开启 WebSocket Server）的降级窗口
+        self._http_api_unavailable_until = 0.0
 
     def _get_headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -319,6 +322,46 @@ class NapCatClient:
             "message": "NapCat 容器已启动，但 OneBot 端口尚未就绪（可能需要扫码登录或正在初始化）。"
         }
 
+    async def _call_api_ws(
+        self, action: str, params: dict[str, Any], timeout: float
+    ) -> Optional[dict[str, Any]]:
+        """通过 OneBot WebSocket Server 调用接口（HTTP 端口未开启时的降级路径）。"""
+        echo = f"mcp-{uuid.uuid4().hex}"
+        headers = self._get_headers()
+        try:
+            async with websockets.connect(
+                self.ws_url,
+                additional_headers=headers if headers else None,
+                open_timeout=min(timeout, 10),
+                close_timeout=2,
+                ping_interval=None,
+            ) as ws:
+                await ws.send(json.dumps({
+                    "action": action,
+                    "params": params,
+                    "echo": echo
+                }, ensure_ascii=False))
+                deadline = asyncio.get_running_loop().time() + timeout
+                while True:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        return None
+                    raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
+                    try:
+                        data = json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if not isinstance(data, dict):
+                        continue
+                    if data.get("echo") == echo:
+                        return data
+                    if data.get("retcode") == 1403:
+                        return data
+                    # 同一连接会同时推送事件流，忽略非本次请求的消息
+        except Exception as exc:
+            logger.warning('WebSocket API 调用失败 (%s): %s', action, type(exc).__name__)
+            return None
+
     async def call_api(
         self,
         action: str,
@@ -361,6 +404,12 @@ class NapCatClient:
                     "advice": f"请打开桌面上的二维码图片 ({heal_res.get('desktop_qrcode_path') or heal_res.get('qrcode_path')}) 扫描登录。"
                 }
 
+        loop = asyncio.get_running_loop()
+        if loop.time() < self._http_api_unavailable_until:
+            ws_result = await self._call_api_ws(action_clean, clean_payload, timeout)
+            if ws_result is not None:
+                return ws_result
+
         url = f"{self.http_url}/{action_clean}"
         session = await self.ensure_session()
 
@@ -388,7 +437,13 @@ class NapCatClient:
                 if resp.status >= 400:
                     return {**data,'status':'failed','retcode':resp.status,'action':action_clean}
                 return data
-        except (aiohttp.ClientConnectorError, ConnectionRefusedError) as e:
+        except (aiohttp.ClientConnectionError, ConnectionRefusedError) as e:
+            ws_result = await self._call_api_ws(action_clean, clean_payload, timeout)
+            if ws_result is not None:
+                if loop.time() >= self._http_api_unavailable_until:
+                    logger.info('OneBot HTTP API 不可用，已自动切换为 WebSocket API 调用')
+                self._http_api_unavailable_until = loop.time() + 300
+                return ws_result
             if local_default and os.path.exists(QR_CACHE_IMAGE) and os.path.getsize(QR_CACHE_IMAGE) > 100:
                 desktop_qr = await asyncio.to_thread(export_qrcode_to_desktop, QR_CACHE_IMAGE)
                 return {
