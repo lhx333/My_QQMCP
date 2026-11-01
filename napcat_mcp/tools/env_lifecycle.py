@@ -26,7 +26,7 @@ from ..config import (
 @registry.register()
 async def check_napcat_environment(client: NapCatClient) -> dict[str, Any]:
     """
-    检查本地 NapCatQQ 运行时安装状态、OneBot 端口 (3000/3001) 监听情况、本地缓存账号列表，并请求 GitHub Release API 对比官方最新版本。
+    检查本地 NapCatQQ 运行时安装状态（默认 Docker 容器，Windows 模式为原生运行时）、OneBot 端口 (3000/3001) 监听情况、本地缓存账号列表，并请求 GitHub Release API 对比官方最新版本。
     适用场景：首次连接、排查接口调用失败或判断是否有新版本可升级时优先调用。不适用与替代：若仅需读取当前在线 QQ 的 user_id 与昵称，请改用轻量级的 `get_login_info`（无需请求 GitHub，速度更快）。
     行为与返回：纯只读无副作用操作（包含一次约 5 秒超时的外部 GitHub 版本探测）；返回包含 `installed`、`port_listening`、`cached_accounts`、`latest_release` 及 `needs_update` 诊断结论的字典，失败时在相应字段返回原因。
     """
@@ -51,13 +51,13 @@ async def deploy_or_update_napcat(
     target_uin: Optional[str] = None
 ) -> dict[str, Any]:
     """
-    自动下载、解压并部署或升级本地 Windows NapCatQQ 运行时环境，同时自动写入 OneBot 11 (3000/3001) 端口配置。
+    默认拉取官方 Docker 镜像并重建 Linux NapCat 容器（数据目录挂载保留登录态），同时自动写入 OneBot 11 (3000/3001) 端口配置；设置 `OMNIQQ_NAPCAT_DEPLOY_MODE=windows` 时改为下载并解压 Windows 原生运行时。
     适用场景：当 `check_napcat_environment` 显示未安装（选 `action='deploy'`）或存在新版本需升级（选 `action='update'`）时使用。不适用与替代：若运行时已安装且仅需启动、重启或切换账号，请改用 `switch_qq_account` 或 `call_napcat_api`，切勿重复重装。
-    参数约束与两阶段门禁：强制采用两阶段确认锁——首次调用必须传 `confirmed=False` 获取只读预览计划；向用户展示计划并获得明确许可后，再传 `confirmed=True` 真正执行文件覆写。`target_uin` 若指定须为 5~11 位纯数字 QQ 号字符串。
-    行为与副作用：`confirmed=True` 时会终止现有本地 NapCat 进程并覆写运行时目录（升级失败或健康检查不通过时自动回滚至旧版本备份）；仅支持本地 Windows 模式，外部远程 OneBot URL 调用将直接返回 `status='failed'`。
-    :param action: 执行模式，枚举值 'deploy'（全新部署安装）或 'update'（备份旧版并升级，失败自动回滚），默认 'deploy'
-    :param confirmed: 两阶段安全门禁开关；False 时仅返回只读部署预览计划，True 时执行真实下载解压与进程重启
-    :param use_local_zip_if_available: 为 True 时优先解压本地已缓存的离线 Release 压缩包以避免重复网络下载，默认 True
+    参数约束与两阶段门禁：强制采用两阶段确认锁——首次调用必须传 `confirmed=False` 获取只读预览计划；向用户展示计划并获得明确许可后，再传 `confirmed=True` 真正执行镜像拉取、容器重建或文件覆写。`target_uin` 若指定须为 5~11 位纯数字 QQ 号字符串。
+    行为与副作用：Docker 模式会拉取镜像并停止/重建托管容器（挂载目录内的账号数据保留）；Windows 模式会终止现有进程并覆写运行时目录（失败时自动回滚）。仅支持本地运行时，外部远程 OneBot URL 调用将直接返回 `status='failed'`。
+    :param action: 执行模式，枚举值 'deploy'（全新部署安装）或 'update'（拉取新镜像或备份旧版升级），默认 'deploy'
+    :param confirmed: 两阶段安全门禁开关；False 时仅返回只读部署预览计划，True 时执行真实部署
+    :param use_local_zip_if_available: Windows 模式下为 True 时优先解压本地已缓存的离线 Release 压缩包，默认 True（Docker 模式忽略）
     :param target_uin: 部署后自动绑定 OneBot 端口的 5~11 位纯数字 QQ 号字符串；留空则沿用当前默认账号
     """
     if not client.uses_local_runtime():
@@ -173,9 +173,9 @@ async def login_new_qq_by_qrcode(
     """
     启动全新 QQ 账号的二维码扫码登录流程，生成高清二维码图片 (`qrcode.png`) 等待手机 QQ 扫码，成功后自动写入 OneBot 11 端口配置并转为后台常驻运行。
     适用场景：首次绑定新 QQ 号，或已有账号登录态过期需要重新手机扫码授权时调用。不适用与替代：若目标 QQ 号已在本地缓存列表且凭证有效，请勿重新扫码，应改用 `switch_qq_account` 免扫码秒级切换。
-    参数约束与交互：`open_image=True` 会在本机 Windows 桌面自动弹出二维码查看器；`wait_scan_seconds` 控制阻塞等待用户手机确认的最大秒数（超时未扫返回 `status='scan_timed_out'`）。
+    参数约束与交互：`open_image=True` 且运行在 Windows 桌面时自动弹出二维码查看器；Linux/Docker 环境返回二维码文件路径供调用方读取；`wait_scan_seconds` 控制阻塞等待用户手机确认的最大秒数（超时未扫返回 `status='scan_timed_out'`）。
     行为与副作用：会主动停止当前正在运行的本地 NapCat 进程并重置自动登录配置；前置要求本地 NapCat 已部署（未部署请先调用 `deploy_or_update_napcat`），成功时返回 `status='logged_in_and_configured'`、`new_uin` 及 `online_account`。
-    :param open_image: 生成二维码后是否立即调用系统默认图片查看器在桌面弹出显示，默认 True
+    :param open_image: Windows 桌面环境下生成二维码后是否立即弹出图片查看器，默认 True（Linux 仅返回路径）
     :param wait_scan_seconds: 阻塞等待用户使用手机 QQ 扫描并确认登录的最大超时秒数（建议 30~120），默认 45
     """
     if not client.uses_local_runtime():
@@ -209,7 +209,7 @@ async def get_login_qrcode_image(
     读取本地缓存的最新 NapCat 登录二维码图片路径 (`qrcode.png`)，并可选在桌面弹出展示该图片。
     适用场景：当 `login_new_qq_by_qrcode` 已经生成二维码但用户关闭了图片窗口需要重新查看时调用。不适用与替代：本工具不会启动扫码进程或刷新过期二维码；如需发起新的扫码会话，请改用 `login_new_qq_by_qrcode`。
     行为与返回：只读查询本地文件状态（`open_image=True` 时触发本地图片查看器）；文件存在返回 `status='ok'` 与 `qrcode_path`，不存在返回 `status='not_found'`。
-    :param open_image: 若本地二维码图片文件存在，是否在 Windows 桌面立即打开图片查看器展示，默认 True
+    :param open_image: 若二维码图片存在，是否在 Windows 桌面立即打开图片查看器展示，默认 True（Linux 仅返回路径）
     """
     if not client.uses_local_runtime():
         return {'status': 'not_found', 'error': '外部 OneBot URL 没有本地二维码缓存'}
@@ -231,7 +231,7 @@ async def get_login_qrcode_image(
         "desktop_qrcode_path": desktop_qr,
         "opened_on_screen": opened,
         "message": (
-            f"登录二维码已保存到桌面：{target_qr}，请打开桌面上的二维码图片进行扫描登录" + ("（已在屏幕弹出显示）。" if opened else "。")
+            f"登录二维码已保存到：{target_qr}，请打开该图片进行扫描登录" + ("（已在屏幕弹出显示）。" if opened else "。")
             if exists
             else "当前没有缓存的二维码图片，请调用 `login_new_qq_by_qrcode` 生成新二维码。"
         )
@@ -246,8 +246,8 @@ async def start_napcat_service(
 ) -> dict[str, Any]:
     """
     启动本地 NapCatQQ 后台服务进程并等待 OneBot (3000/3001) 端口就绪，同时挂载后台 WebSocket 事件监听。
-    适用场景：当本地服务处于停止状态、需要以默认或指定已缓存账号拉起后台进程时调用（启动前会自动检查并结束冲突的独立 QQ.exe 进程；若检测到需要扫码登录，会自动把登录二维码放到桌面并提示用户打开扫描）。不适用与替代：若服务已在运行且需切换其他已缓存账号，请改用 `switch_qq_account`。
-    行为与返回：幂等操作——启动前先结束冲突的独立 QQ.exe 进程；若端口已在监听则返回 `status='already_running'`；新启动成功返回 `status='started'`；若需扫码登录则将二维码导出至桌面并返回 `login_required=True` 及 `desktop_qrcode_path`。
+    适用场景：当本地服务处于停止状态、需要以默认或指定已缓存账号拉起后台运行时调用（Docker 模式启动托管容器；Windows 模式会先结束冲突的独立 QQ.exe 进程；若检测到需要扫码登录，会自动导出登录二维码并提示用户扫描）。不适用与替代：若服务已在运行且需切换其他已缓存账号，请改用 `switch_qq_account`。
+    行为与返回：幂等操作——Docker 模式启动/复用容器，Windows 模式结束冲突进程并拉起沙箱；若端口已在监听则返回 `status='already_running'`；新启动成功返回 `status='started'`；若需扫码登录则返回 `login_required=True` 及二维码路径。
     :param uin: 指定要自动登录的 5~11 位纯数字 QQ 号字符串；留空则使用本地配置中的当前默认账号
     :param wait_seconds: 启动进程后轮询等待 OneBot HTTP 端口监听就绪的最大秒数，默认 25
     """

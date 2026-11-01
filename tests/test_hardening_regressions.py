@@ -155,6 +155,7 @@ class ClientHardeningTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_runtime_does_not_kill_qq(self):
         client = NapCatClient(token='test', auto_heal=False)
         with patch('napcat_mcp.client.is_port_listening', return_value=False), \
+             patch('napcat_mcp.client.is_docker_mode', return_value=False), \
              patch('napcat_mcp.client.os.path.exists', return_value=False), \
              patch('napcat_mcp.client.kill_qq_processes') as kill:
             result = await client.start_napcat_process()
@@ -238,6 +239,7 @@ class LifecycleHardeningTests(unittest.IsolatedAsyncioTestCase):
                                 NODE_EXE=str(installed / 'node.exe'), INDEX_JS=str(installed / 'index.js'),
                                 LOCAL_RELEASE_ZIP=str(archive)), \
                  patch('napcat_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
+                 patch('napcat_mcp.deployer.is_docker_mode', return_value=False), \
                  patch('napcat_mcp.deployer.kill_napcat_processes'), \
                  patch('napcat_mcp.deployer.get_current_account', return_value=''), \
                  patch('napcat_mcp.deployer.check_installed_runtime', side_effect=health):
@@ -270,6 +272,7 @@ class LifecycleHardeningTests(unittest.IsolatedAsyncioTestCase):
                                 NODE_EXE=str(installed / 'node.exe'), INDEX_JS=str(installed / 'index.js'),
                                 LOCAL_RELEASE_ZIP=str(archive)), \
                  patch('napcat_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
+                 patch('napcat_mcp.deployer.is_docker_mode', return_value=False), \
                  patch('napcat_mcp.deployer.kill_napcat_processes'), \
                  patch('napcat_mcp.deployer.get_current_account', return_value='123456'), \
                  patch('napcat_mcp.deployer.ensure_onebot_config', return_value=False):

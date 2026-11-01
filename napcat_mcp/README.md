@@ -25,14 +25,15 @@
 - **万能底层接口透传 (`call_napcat_api`)**：支持直接调用 NapCat 官方引擎全部 **144+ 个标准与扩展 Action**（如群相册、群打卡、语音转文字 `fetch_ptt_text`、AI 声聊 `send_group_ai_record` 等），并内置 `list_supported_napcat_actions` 供 AI 自主查阅全部接口目录。
 
 ### 2. 📱 原生支持二维码扫码登录与多 QQ 账号切换
-- **新账号扫码登录 (`login_new_qq_by_qrcode`)**：无需手动折腾配置文件，AI 一键拉起扫码沙箱、在屏幕自动弹出高清二维码图片 (`qrcode.png`)，用户手机扫码后**自动生成 OneBot 11 (3000/3001) 端口配置并转为后台常驻服务**；
+- **新账号扫码登录 (`login_new_qq_by_qrcode`)**：无需手动折腾配置文件，AI 一键拉起扫码会话并生成高清二维码图片 (`qrcode.png`，Windows 桌面自动弹出，Linux 返回文件路径)，用户手机扫码后**自动生成 OneBot 11 (3000/3001) 端口配置并转为后台常驻服务**；
 - **多账号免扫码热切换 (`list_qq_accounts` / `switch_qq_account`)**：自动识别本地已缓存的所有历史登录 QQ 号，支持在多个 QQ 账号之间重启切换上线（耗时取决于登录状态）；
-- **精准进程控制 (`start_napcat_service` / `stop_napcat_service` / `restart_napcat_service`)**：精准管理 `napcat_runtime` 下的沙箱进程，按可执行文件与入口路径匹配托管进程。
+- **精准运行时控制 (`start_napcat_service` / `stop_napcat_service` / `restart_napcat_service`)**：Docker 模式管理托管容器，Windows 模式按可执行文件与入口路径精准匹配沙箱进程，绝不误杀系统其他 Node.js 进程。
 
 ### 3. 🛠️ 环境智能自检、版本对比与一键安全自动部署 (`Self-Deploying & Auto-Healing`)
-- **环境诊断 (`check_napcat_environment`)**：自动检测本地 NapCat 运行时完整性、3000/3001 端口状态，并实时连接 GitHub Release API 对比官方最新版本；
-- **带安全确认锁的一键部署与升级 (`deploy_or_update_napcat`)**：内建 `confirmed=False` 强制确认门禁，在向用户展示部署路径与版本信息并获得明确授权后，自动下载/解压官方 Release 包并完成初始化；
-- **混合自愈启动 (`Auto-Heal`)**：调用任意 QQ 工具时，若检测到后台 NapCat 未启动，自动以最小化无焦点窗口静默拉起服务并完成握手。
+- **环境诊断 (`check_napcat_environment`)**：自动检测 NapCat 运行时完整性（默认 Docker 容器）、3000/3001 端口状态，并实时连接 GitHub Release API 对比官方最新版本；
+- **带安全确认锁的一键部署与升级 (`deploy_or_update_napcat`)**：内建 `confirmed=False` 强制确认门禁，在向用户展示镜像、容器、端口与挂载目录并获得明确授权后，自动拉取官方 `mlikiowa/napcat-docker` 镜像并重建 Linux 容器（挂载目录保留登录态）；
+- **Windows 原生兼容**：设置 `OMNIQQ_NAPCAT_DEPLOY_MODE=windows` 可切换为下载/解压官方 Release 包的 Windows Node Shell 模式；
+- **混合自愈启动 (`Auto-Heal`)**：调用任意 QQ 工具时，若检测到后台 NapCat 未启动，自动拉起 Docker 容器或 Windows 沙箱并完成握手。
 
 ### 4. ⚡ 实时 WebSocket 消息环形缓存 + 机制与策略彻底分离
 - **实时收信感知 (`get_recent_messages` / `get_recent_notices_and_requests`)**：后台自动维护 WebSocket 长连接与环形消息队列（默认缓存最近 200 条消息与群通知/好友申请），自动净化 CQ 码与富媒体段，支持按群号、QQ 号、关键词秒级检索；
@@ -74,7 +75,9 @@ python -m pip install -r requirements.txt
 
 依赖范围见 `requirements.txt`，WebSocket 使用 `websockets>=14,<17`。可在本目录构建 wheel 或执行 `pip install .`，入口为 `omniqq-mcp`。
 
-本地 NapCat 托管、扫码、进程管理与自动部署仅支持 Windows；连接外部 OneBot URL 时不检查或启动本地端口。Python、WebSocket、MCP 和 NapCat 的版本矩阵，以及升级备份和回滚方式，见 [可靠性审查](docs/RELIABILITY_REVIEW.md)。
+本地 NapCat 默认通过 **Docker** 部署（Linux 服务器/容器环境），需要本机可用的 Docker 守护进程；扫码登录、容器启停与自动部署均由 MCP 托管。设置 `OMNIQQ_NAPCAT_DEPLOY_MODE=windows` 可切换为 Windows 原生 Node Shell 模式。连接外部 OneBot URL 时不检查或启动本地端口。Python、WebSocket、MCP 和 NapCat 的版本矩阵，以及升级备份和回滚方式，见 [可靠性审查](docs/RELIABILITY_REVIEW.md)。
+
+Docker 部署相关环境变量：`NAPCAT_DOCKER_IMAGE`（默认 `mlikiowa/napcat-docker:latest`）、`NAPCAT_DOCKER_CONTAINER`（默认 `napcat-mcp`）、`NAPCAT_DOCKER_DATA_DIR`、`NAPCAT_DOCKER_QQ_DIR`、`NAPCAT_DOCKER_BIND`（默认 `127.0.0.1`）、`NAPCAT_WEBUI_PORT`（默认 `6099`）。
 
 ### 2. 启动 MCP Server
 
@@ -154,7 +157,11 @@ Streamable HTTP 相关环境变量：`NAPCAT_MCP_TRANSPORT`、`NAPCAT_MCP_HOST`�
 - **结构化消息与校验**：保留原始消息段，补齐历史查询 Action；校验必填项和参数类型，畸形 JSON-RPC 不终止服务。
 - **元数据审计**：日志不保留消息正文、文件内容、完整调用参数或凭据，支持轮转和可配置路径。
 
-更新全部 MCP 宿主使用的源码或安装包后，重启 MCP 进程以加载新版本。新安装的运行时、日志、账号选择和 Token 默认位于 `%LOCALAPPDATA%\OmniQQ-MCP`；已有 `napcat_runtime` 会继续使用。
+更新全部 MCP 宿主使用的源码或安装包后，重启 MCP 进程以加载新版本。新安装的运行时、日志、账号选择和 Token 在 Windows 下默认位于 `%LOCALAPPDATA%\OmniQQ-MCP`，Linux/macOS 下默认位于 `~/.local/share/OmniQQ-MCP`；已有 `napcat_runtime` 会继续使用。
+
+### v1.3.0 (Unreleased)
+- **默认 Docker 部署**：本地 NapCat 运行时默认使用官方 `mlikiowa/napcat-docker` 镜像，挂载 `config`/`cache`/QQ 数据目录，支持容器启停、二维码登录与升级；Windows 原生模式通过 `OMNIQQ_NAPCAT_DEPLOY_MODE=windows` 保留。
+- **Linux 路径与凭据**：默认运行时与 OneBot Token 存放在 `~/.local/share/OmniQQ-MCP`，避免 Windows 路径依赖。
 
 ### v1.2.2 (2026-10-28)
 - **协议与账号边界加固**：异常请求不终止 MCP，切账号后旧队列不进入新账号回调，延迟切换保留当前在线账号。

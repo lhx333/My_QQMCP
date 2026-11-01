@@ -107,6 +107,7 @@ class OmniQQReviewFixes(unittest.IsolatedAsyncioTestCase):
                                 NODE_EXE=str(installed / 'node.exe'), INDEX_JS=str(installed / 'index.js'),
                                 LOCAL_RELEASE_ZIP=str(archive)), \
                  patch('napcat_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
+                 patch('napcat_mcp.deployer.is_docker_mode', return_value=False), \
                  patch('napcat_mcp.deployer.kill_napcat_processes'), \
                  patch('napcat_mcp.deployer.get_current_account', return_value='123456'), \
                  patch('napcat_mcp.deployer.ensure_onebot_config', return_value=False):
@@ -130,6 +131,7 @@ class OmniQQReviewFixes(unittest.IsolatedAsyncioTestCase):
                                 NODE_EXE=str(installed / 'node.exe'), INDEX_JS=str(installed / 'index.js'),
                                 LOCAL_RELEASE_ZIP=str(archive)), \
                  patch('napcat_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
+                 patch('napcat_mcp.deployer.is_docker_mode', return_value=False), \
                  patch('napcat_mcp.deployer.kill_napcat_processes'), \
                  patch('napcat_mcp.deployer.get_current_account', return_value=''), \
                  patch('napcat_mcp.deployer.check_installed_runtime', side_effect=RuntimeError('bad node')):
@@ -205,6 +207,7 @@ class OmniQQStaticReviewFixes(unittest.TestCase):
                                    'cmdline': [str(exe), str(root / 'other.js')]})
             with patch('napcat_mcp.config.NODE_EXE', str(exe)), \
                  patch('napcat_mcp.config.INDEX_JS', str(entry)), \
+                 patch('napcat_mcp.config.is_docker_mode', return_value=False), \
                  patch('psutil.process_iter', return_value=[correct, unrelated]), \
                  patch('napcat_mcp.config.time.sleep'):
                 self.assertEqual(kill_napcat_processes(), 1)
