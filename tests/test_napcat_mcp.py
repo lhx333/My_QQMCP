@@ -277,6 +277,7 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
                 NODE_EXE=str(fake_node),
                 INDEX_JS=str(fake_index),
                 QR_CACHE_IMAGE=str(fake_qr),
+                is_docker_mode=lambda: False,
                 is_port_listening=lambda *a, **kw: False,
                 kill_qq_processes=Mock(return_value=1),
                 ensure_onebot_token=lambda: "tok",
@@ -287,7 +288,8 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
                     STARTF_USESHOWWINDOW=1,
                     Popen=fake_popen
                 ),
-            ), patch.dict(os.environ, {"OMNIQQ_DESKTOP_DIR": str(desktop_dir)}):
+            ), patch('napcat_mcp.config.is_docker_mode', return_value=False), \
+                 patch.dict(os.environ, {"OMNIQQ_DESKTOP_DIR": str(desktop_dir)}):
                 res = await self.server.client.start_napcat_process(uin="123456", wait_seconds=2)
 
             expected_desktop_qr = str(desktop_dir / DESKTOP_QR_FILENAME)
@@ -379,7 +381,7 @@ class TestNapCatMCP(unittest.IsolatedAsyncioTestCase):
         """验证通过子进程 stdio 管道与 run_mcp.py 进行真实 JSON-RPC 交互"""
         run_script = os.path.join(PROJECT_ROOT, "napcat_mcp", "run_mcp.py")
         proc = subprocess.Popen(
-            [sys.executable, run_script],
+            [sys.executable, run_script, "--transport", "stdio"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

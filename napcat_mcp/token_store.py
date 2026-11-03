@@ -16,7 +16,10 @@ def token_path() -> Path:
     explicit = os.environ.get('OMNIQQ_ONEBOT_TOKEN_FILE')
     if explicit:
         return Path(explicit).expanduser()
-    base = os.environ.get('LOCALAPPDATA') or str(Path.home() / 'AppData' / 'Local')
+    base = os.environ.get('LOCALAPPDATA')
+    if not base:
+        parts = ('.local', 'share') if os.name != 'nt' else ('AppData', 'Local')
+        base = str(Path.home().joinpath(*parts))
     return Path(base) / 'OmniQQ-MCP' / 'onebot-token'
 
 

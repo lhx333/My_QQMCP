@@ -1,11 +1,11 @@
 # OmniQQ-MCP: Full-Featured QQ Bot Control & OneBot 11 Model Context Protocol (MCP) Server
 
-[![MCP Compatible](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-blue)](https://modelcontextprotocol.io)
+[![MCP Streamable HTTP](https://img.shields.io/badge/MCP-Streamable%20HTTP-blue)](https://modelcontextprotocol.io)
 [![NapCatQQ](https://img.shields.io/badge/NapCatQQ-OneBot%2011-00BFFF)](https://github.com/NapNeko/NapCatQQ)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-green)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-**OmniQQ-MCP (`omniqq-mcp`)** 是基于 [NapNeko/NapCatQQ](https://github.com/NapNeko/NapCatQQ) 与 **OneBot 11 协议**的 QQ 控制与事件读取 MCP Server。本版本提供 74 项具名工具与 OneBot Action 透传，新增账号隔离缓存、并发请求、只读取消和可靠性修复。
+**OmniQQ-MCP (`omniqq-mcp`)** 是基于 [NapNeko/NapCatQQ](https://github.com/NapNeko/NapCatQQ) 与 **OneBot 11 协议**的 QQ 控制与事件读取 MCP Server。默认通过 **Streamable HTTP** 远程传输运行，提供 74 项具名工具与 OneBot Action 透传，并保留账号隔离缓存、并发请求、只读取消和可靠性修复。
 
 通过本工具，你可以让 **Claude Desktop、Google Antigravity、Cursor、Windsurf、Cline、OpenAI Agents** 等任意支持 MCP 的 AI 智能体直接获得**操控 QQ 的双手与实时感知的眼睛**——涵盖私聊/群聊收发、合并转发、群管禁言踢人、群文件上传下载、图片 OCR、好友与资料管理、**二维码扫码登录、多 QQ 账号热切换**，以及 **一键环境自检与自动部署更新**。
 
@@ -25,18 +25,26 @@
 - **万能底层接口透传 (`call_napcat_api`)**：支持直接调用 NapCat 官方引擎全部 **144+ 个标准与扩展 Action**（如群相册、群打卡、语音转文字 `fetch_ptt_text`、AI 声聊 `send_group_ai_record` 等），并内置 `list_supported_napcat_actions` 供 AI 自主查阅全部接口目录。
 
 ### 2. 📱 原生支持二维码扫码登录与多 QQ 账号切换
-- **新账号扫码登录 (`login_new_qq_by_qrcode`)**：无需手动折腾配置文件，AI 一键拉起扫码沙箱、在屏幕自动弹出高清二维码图片 (`qrcode.png`)，用户手机扫码后**自动生成 OneBot 11 (3000/3001) 端口配置并转为后台常驻服务**；
+- **新账号扫码登录 (`login_new_qq_by_qrcode`)**：无需手动折腾配置文件，AI 一键拉起扫码会话并生成高清二维码图片 (`qrcode.png`，Windows 桌面自动弹出，Linux 返回文件路径)，用户手机扫码后**自动生成 OneBot 11 (3000/3001) 端口配置并转为后台常驻服务**；
 - **多账号免扫码热切换 (`list_qq_accounts` / `switch_qq_account`)**：自动识别本地已缓存的所有历史登录 QQ 号，支持在多个 QQ 账号之间重启切换上线（耗时取决于登录状态）；
-- **精准进程控制 (`start_napcat_service` / `stop_napcat_service` / `restart_napcat_service`)**：精准管理 `napcat_runtime` 下的沙箱进程，按可执行文件与入口路径匹配托管进程。
+- **精准运行时控制 (`start_napcat_service` / `stop_napcat_service` / `restart_napcat_service`)**：Docker 模式管理托管容器，Windows 模式按可执行文件与入口路径精准匹配沙箱进程，绝不误杀系统其他 Node.js 进程。
 
 ### 3. 🛠️ 环境智能自检、版本对比与一键安全自动部署 (`Self-Deploying & Auto-Healing`)
-- **环境诊断 (`check_napcat_environment`)**：自动检测本地 NapCat 运行时完整性、3000/3001 端口状态，并实时连接 GitHub Release API 对比官方最新版本；
-- **带安全确认锁的一键部署与升级 (`deploy_or_update_napcat`)**：内建 `confirmed=False` 强制确认门禁，在向用户展示部署路径与版本信息并获得明确授权后，自动下载/解压官方 Release 包并完成初始化；
-- **混合自愈启动 (`Auto-Heal`)**：调用任意 QQ 工具时，若检测到后台 NapCat 未启动，自动以最小化无焦点窗口静默拉起服务并完成握手。
+- **环境诊断 (`check_napcat_environment`)**：自动检测 NapCat 运行时完整性（默认 Docker 容器）、3000/3001 端口状态，并实时连接 GitHub Release API 对比官方最新版本；
+- **带安全确认锁的一键部署与升级 (`deploy_or_update_napcat`)**：内建 `confirmed=False` 强制确认门禁，在向用户展示镜像、容器、端口与挂载目录并获得明确授权后，自动拉取官方 `mlikiowa/napcat-docker` 镜像并重建 Linux 容器（挂载目录保留登录态）；
+- **Windows 原生兼容**：设置 `OMNIQQ_NAPCAT_DEPLOY_MODE=windows` 可切换为下载/解压官方 Release 包的 Windows Node Shell 模式；
+- **混合自愈启动 (`Auto-Heal`)**：调用任意 QQ 工具时，若检测到后台 NapCat 未启动，自动拉起 Docker 容器或 Windows 沙箱并完成握手。
 
 ### 4. ⚡ 实时 WebSocket 消息环形缓存 + 机制与策略彻底分离
 - **实时收信感知 (`get_recent_messages` / `get_recent_notices_and_requests`)**：后台自动维护 WebSocket 长连接与环形消息队列（默认缓存最近 200 条消息与群通知/好友申请），自动净化 CQ 码与富媒体段，支持按群号、QQ 号、关键词秒级检索；
 - **机制与策略分离 (`Event Hook` 扩展总线)**：MCP Server 保持 100% 纯净通用，不写死任何特定业务白名单；同时在 `MessageBuffer.register_event_hook(callback)` 预留事件回调钩子，并支持多路 WebSocket 并行监听，方便开发者后期按需挂载自定义筛选与 Agent 唤醒脚本。
+
+### 5. 🌐 Streamable HTTP 远程 MCP（默认传输）
+- **单端点**：`POST /mcp`（JSON-RPC）、`GET /mcp`（SSE 保活流）、`DELETE /mcp`（终止会话）、`GET /health`（健康检查）；
+- **会话管理**：`initialize` 返回 `Mcp-Session-Id`；无效或过期会话返回 404；支持 `--stateless` 无状态模式；
+- **协议协商**：支持 `2025-06-18` / `2025-03-26` / `2024-11-05`，并校验 `MCP-Protocol-Version`；
+- **安全边界**：可选 `--auth-token` Bearer 鉴权、Origin 校验、默认仅监听 `127.0.0.1`；
+- **stdio 兼容**：`--transport stdio` 保留原有逐行 JSON-RPC 模式，方便旧宿主或本地调试。
 
 ---
 
@@ -67,11 +75,45 @@ python -m pip install -r requirements.txt
 
 依赖范围见 `requirements.txt`，WebSocket 使用 `websockets>=14,<17`。可在本目录构建 wheel 或执行 `pip install .`，入口为 `omniqq-mcp`。
 
-本地 NapCat 托管、扫码、进程管理与自动部署仅支持 Windows；连接外部 OneBot URL 时不检查或启动本地端口。Python、WebSocket、MCP 和 NapCat 的版本矩阵，以及升级备份和回滚方式，见 [可靠性审查](docs/RELIABILITY_REVIEW.md)。
+本地 NapCat 默认通过 **Docker** 部署（Linux 服务器/容器环境），需要本机可用的 Docker 守护进程；扫码登录、容器启停与自动部署均由 MCP 托管。设置 `OMNIQQ_NAPCAT_DEPLOY_MODE=windows` 可切换为 Windows 原生 Node Shell 模式。连接外部 OneBot URL 时不检查或启动本地端口。Python、WebSocket、MCP 和 NapCat 的版本矩阵，以及升级备份和回滚方式，见 [可靠性审查](docs/RELIABILITY_REVIEW.md)。
 
-### 2. 在 MCP 客户端中挂载 (`mcp_config.json`)
+Docker 部署相关环境变量：`NAPCAT_DOCKER_IMAGE`（默认 `mlikiowa/napcat-docker:latest`）、`NAPCAT_DOCKER_CONTAINER`（默认 `napcat-mcp`）、`NAPCAT_DOCKER_DATA_DIR`、`NAPCAT_DOCKER_QQ_DIR`、`NAPCAT_DOCKER_BIND`（默认 `127.0.0.1`）、`NAPCAT_WEBUI_PORT`（默认 `6099`）。
 
-在 **Antigravity (`~/.gemini/config/mcp_config.json`)**、**Claude Desktop** 或 **Cursor** 中添加：
+### 2. 启动 MCP Server
+
+Streamable HTTP（默认）：
+
+```bash
+python napcat_mcp/run_mcp.py --host 127.0.0.1 --port 8000 --path /mcp
+```
+
+默认 URL 为 `http://127.0.0.1:8000/mcp`；非回环地址部署时请设置鉴权：
+
+```bash
+python napcat_mcp/run_mcp.py --host 0.0.0.0 --port 8000 --auth-token "your-secret-token"
+```
+
+健康检查：`curl http://127.0.0.1:8000/health`。
+
+### 3. 在 MCP 客户端中挂载
+
+远程 Streamable HTTP（推荐）：
+
+```json
+{
+  "mcpServers": {
+    "omniqq-mcp": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer your-secret-token"
+      }
+    }
+  }
+}
+```
+
+未启用 `--auth-token` 时可省略 `headers`。需要 stdio 兼容模式时使用：
 
 ```json
 {
@@ -80,7 +122,9 @@ python -m pip install -r requirements.txt
       "command": "python",
       "args": [
         "-u",
-        "/path/to/napcat_mcp/run_mcp.py"
+        "/path/to/napcat_mcp/run_mcp.py",
+        "--transport",
+        "stdio"
       ],
       "env": {
         "PYTHONIOENCODING": "utf-8",
@@ -91,7 +135,9 @@ python -m pip install -r requirements.txt
 }
 ```
 
-### 3. 首次使用自然语言交互示例
+Streamable HTTP 相关环境变量：`NAPCAT_MCP_TRANSPORT`、`NAPCAT_MCP_HOST`、`NAPCAT_MCP_PORT`、`NAPCAT_MCP_PATH`、`NAPCAT_MCP_AUTH_TOKEN`、`NAPCAT_MCP_ALLOWED_ORIGINS`、`NAPCAT_MCP_STATELESS`、`NAPCAT_MCP_SESSION_TIMEOUT`。
+
+### 4. 首次使用自然语言交互示例
 
 挂载完成后，直接对你的 AI 助手说：
 - *“检查一下我的 NapCat 环境状态，如果没部署帮我自动部署一下”*
@@ -104,14 +150,18 @@ python -m pip install -r requirements.txt
 ## v1.1.0 更新（2026-10-14）
 
 - **账号隔离缓存**：消息、通知和申请按 `self_id` 保存在内存中，切换账号不会混用收件记录。
-- **并发与取消**：stdio 同时处理请求，慢请求不阻塞查询；只读请求支持 `notifications/cancelled`，写操作继续完成并报告实际结果。
+- **并发与取消**：stdio 与 Streamable HTTP 均并发处理请求，慢请求不阻塞查询；只读请求支持 `notifications/cancelled`，写操作继续完成并报告实际结果。
 - **有界事件钩子**：事件按序投递，慢同步钩子在线程中执行，队列背压保护 WebSocket 读取。
 - **OneBot 鉴权**：HTTP 与 WebSocket 复用用户数据目录中的随机 Token；403 恢复先用只读探测验证候选凭据。
 - **可靠性修复**：外部端点不启动本地运行时；账号配置写入失败可见；进程清理匹配目标可执行文件和入口；升级失败回滚备份。
 - **结构化消息与校验**：保留原始消息段，补齐历史查询 Action；校验必填项和参数类型，畸形 JSON-RPC 不终止服务。
 - **元数据审计**：日志不保留消息正文、文件内容、完整调用参数或凭据，支持轮转和可配置路径。
 
-更新全部 MCP 宿主使用的源码或安装包后，重启 MCP 进程以加载新版本。新安装的运行时、日志、账号选择和 Token 默认位于 `%LOCALAPPDATA%\OmniQQ-MCP`；已有 `napcat_runtime` 会继续使用。
+更新全部 MCP 宿主使用的源码或安装包后，重启 MCP 进程以加载新版本。新安装的运行时、日志、账号选择和 Token 在 Windows 下默认位于 `%LOCALAPPDATA%\OmniQQ-MCP`，Linux/macOS 下默认位于 `~/.local/share/OmniQQ-MCP`；已有 `napcat_runtime` 会继续使用。
+
+### v1.3.0 (Unreleased)
+- **默认 Docker 部署**：本地 NapCat 运行时默认使用官方 `mlikiowa/napcat-docker` 镜像，挂载 `config`/`cache`/QQ 数据目录，支持容器启停、二维码登录与升级；Windows 原生模式通过 `OMNIQQ_NAPCAT_DEPLOY_MODE=windows` 保留。
+- **Linux 路径与凭据**：默认运行时与 OneBot Token 存放在 `~/.local/share/OmniQQ-MCP`，避免 Windows 路径依赖。
 
 ### v1.2.2 (2026-10-28)
 - **协议与账号边界加固**：异常请求不终止 MCP，切账号后旧队列不进入新账号回调，延迟切换保留当前在线账号。
@@ -132,7 +182,7 @@ python -m pip install -r requirements.txt
 
 ## 安装与连接
 
-源码根目录运行 `python -m pip install .`，或安装 Release 附件中的 wheel。安装后可直接使用 `omniqq-mcp` 命令作为 MCP stdio 入口。
+源码根目录运行 `python -m pip install .`，或安装 Release 附件中的 wheel。安装后可使用 `omniqq-mcp` 命令启动，默认以 Streamable HTTP 在 `http://127.0.0.1:8000/mcp` 提供服务；`omniqq-mcp --transport stdio` 可作为传统 MCP stdio 入口。
 
 连接已有 OneBot 服务时，设置 `NAPCAT_HTTP_URL` 和 `NAPCAT_WS_URL`。本地默认运行时从私有凭据文件读取 Token；外部地址必须通过 `OMNIQQ_ONEBOT_TOKEN_FILE` 明确指定对应服务的私有 Token 文件（使用 Python 客户端时也可显式传入 `token`）。请保持该文件与 OneBot 服务端鉴权配置一致，且不要将其放入仓库。
 

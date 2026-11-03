@@ -1,6 +1,8 @@
 """
 NapCat 环境自检、版本比对与自动化部署/更新管理器
-支持检测本地沙箱、远程查询 GitHub Release 最新版本，并在用户明确授权 (confirmed=True) 后执行一键部署或升级。
+默认使用 Docker 版 NapCat（Linux 服务器/容器环境）；设置 OMNIQQ_NAPCAT_DEPLOY_MODE=windows
+可切换为 Windows 原生 Node Shell。支持远程查询 GitHub Release 最新版本，并在用户明确授权
+(confirmed=True) 后执行一键部署或升级。
 """
 import os
 import json
@@ -14,6 +16,7 @@ import asyncio
 from typing import Any, Optional
 import aiohttp
 
+from . import docker_runtime
 from .config import (
     RUNTIME_DIR,
     SHELL_NODE_DIR,
@@ -23,6 +26,9 @@ from .config import (
     QR_CACHE_IMAGE,
     DEFAULT_HTTP_PORT,
     DEFAULT_WS_PORT,
+    DOCKER_DATA_DIR,
+    DOCKER_QQ_DIR,
+    is_docker_mode,
     is_port_listening,
     get_current_account,
     get_available_accounts,
@@ -37,8 +43,22 @@ GITHUB_RELEASE_API = "https://api.github.com/repos/NapNeko/NapCatQQ/releases/lat
 _deployment_lock = asyncio.Lock()
 
 
-def check_installed_runtime() -> dict[str, str]:
-    """Check that the installed Node binary runs and NapCat's entry parses."""
+def check_installed_runtime() -> dict[str, Any]:
+    """Check the selected runtime: Docker container presence or Windows Node entry."""
+    if is_docker_mode():
+        if not docker_runtime.docker_available():
+            raise RuntimeError('Docker 服务不可用')
+        status = docker_runtime.container_status()
+        if not status.get('exists'):
+            raise RuntimeError('未找到 NapCat 容器，请先执行部署')
+        if not status.get('running'):
+            raise RuntimeError('NapCat 容器存在但未运行')
+        return {
+            'deployment_mode': 'docker',
+            'docker_version': docker_runtime.docker_version(),
+            'container': status,
+            'image': docker_runtime.IMAGE,
+        }
     options = {'cwd': SHELL_NODE_DIR, 'capture_output': True, 'text': True, 'timeout': 10}
     if os.name == 'nt':
         options['creationflags'] = subprocess.CREATE_NO_WINDOW
@@ -51,8 +71,10 @@ def check_installed_runtime() -> dict[str, str]:
     return {'node_version': version.stdout.strip(), 'entry_syntax': 'ok'}
 
 
-def get_local_napcat_version() -> dict[str, str]:
-    """读取本地安装的 NapCat 与 NTQQ Shell 版本信息"""
+def get_local_napcat_version() -> dict[str, Any]:
+    """读取本地安装的 NapCat 版本信息（Docker 模式返回镜像与容器信息）"""
+    if is_docker_mode():
+        return docker_runtime.local_version()
     shell_version = "unknown"
     napcat_version = "unknown"
 
@@ -95,24 +117,26 @@ async def fetch_github_latest_release() -> dict[str, Any]:
                     published_at = data.get("published_at", "")
                     html_url = data.get("html_url", "https://github.com/NapNeko/NapCatQQ/releases")
 
-                    # 查找适用于 Windows Node Shell 的资产包
-                    assets = data.get("assets", [])
+                    # Windows 模式查找 Node Shell 资产包；Docker 模式只使用官方镜像。
                     win_asset = None
-                    for asset in assets:
-                        name = asset.get("name", "")
-                        if "Shell.Windows.Node" in name or ("Windows" in name and name.endswith(".zip")):
-                            win_asset = {
-                                "name": name,
-                                "size_mb": round(asset.get("size", 0) / (1024 * 1024), 2),
-                                "download_url": asset.get("browser_download_url", "")
-                            }
-                            break
+                    if not is_docker_mode():
+                        for asset in data.get("assets", []):
+                            name = asset.get("name", "")
+                            if "Shell.Windows.Node" in name or ("Windows" in name and name.endswith(".zip")):
+                                win_asset = {
+                                    "name": name,
+                                    "size_mb": round(asset.get("size", 0) / (1024 * 1024), 2),
+                                    "download_url": asset.get("browser_download_url", "")
+                                }
+                                break
 
                     return {
                         "reachable": True,
                         "latest_tag": tag_name,
                         "published_at": published_at,
                         "release_url": html_url,
+                        "deployment_mode": "docker" if is_docker_mode() else "windows",
+                        "recommended_image": docker_runtime.IMAGE if is_docker_mode() else None,
                         "recommended_asset": win_asset
                     }
                 return {
@@ -128,15 +152,99 @@ async def fetch_github_latest_release() -> dict[str, Any]:
         }
 
 
+async def _check_docker_environment(live_version_info: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Docker 模式环境诊断：Docker 守护进程、容器、端口与账号。"""
+    docker_up = await asyncio.to_thread(docker_runtime.docker_available)
+    status = await asyncio.to_thread(docker_runtime.container_status)
+    image_present = await asyncio.to_thread(docker_runtime.image_exists)
+    runtime_installed = docker_up and bool(status.get("exists"))
+
+    http_open = is_port_listening(DEFAULT_HTTP_PORT)
+    ws_open = is_port_listening(DEFAULT_WS_PORT)
+    service_running = http_open and ws_open
+
+    local_ver = get_local_napcat_version()
+    if live_version_info and isinstance(live_version_info, dict):
+        local_ver["running_app_name"] = live_version_info.get("app_name", "NapCat.Onebot")
+        local_ver["running_app_version"] = live_version_info.get("app_version", "unknown")
+        local_ver["protocol_version"] = live_version_info.get("protocol_version", "v11")
+
+    github_info = await fetch_github_latest_release()
+
+    if not docker_up:
+        state = "docker_unavailable"
+        advice = (
+            "未检测到可用的 Docker 服务。请先安装并启动 Docker，再调用 "
+            "`deploy_or_update_napcat(action='deploy', confirmed=True)`；"
+            "或设置 OMNIQQ_NAPCAT_DEPLOY_MODE=windows 使用 Windows 原生运行时。"
+        )
+    elif not runtime_installed:
+        state = "not_installed"
+        advice = (
+            f"未检测到 NapCat 容器 {docker_runtime.CONTAINER_NAME}。"
+            "请询问用户是否允许调用 `deploy_or_update_napcat(action='deploy', confirmed=True)` 拉取镜像并创建容器。"
+        )
+    elif not service_running:
+        state = "installed_not_running"
+        qr_path = export_qrcode_to_desktop(QR_CACHE_IMAGE) if os.path.exists(QR_CACHE_IMAGE) else None
+        if qr_path:
+            advice = (
+                f"NapCat 容器已安装，检测到需要扫码登录！二维码已保存：{qr_path}，"
+                "请扫描登录，或调用 `start_napcat_service` / `login_new_qq_by_qrcode`。"
+            )
+        else:
+            advice = (
+                "NapCat 容器已安装，但服务尚未启动（端口 3000/3001 未监听）。"
+                "可调用 `start_napcat_service`、`switch_qq_account` 或 `login_new_qq_by_qrcode`。"
+            )
+    else:
+        state = "ready"
+        advice = "NapCat 容器已就绪且 OneBot 11 服务正在正常运行。"
+
+    return {
+        "status": state,
+        "advice": advice,
+        "runtime": {
+            "deployment_mode": "docker",
+            "installed": runtime_installed,
+            "docker_available": docker_up,
+            "docker_version": docker_runtime.docker_version() if docker_up else "unknown",
+            "container_name": docker_runtime.CONTAINER_NAME,
+            "container_exists": bool(status.get("exists")),
+            "container_running": bool(status.get("running")),
+            "image": docker_runtime.IMAGE,
+            "image_present": image_present,
+            "data_dir": DOCKER_DATA_DIR,
+        },
+        "service": {
+            "running": service_running,
+            "http_port": DEFAULT_HTTP_PORT,
+            "http_listening": http_open,
+            "ws_port": DEFAULT_WS_PORT,
+            "ws_listening": ws_open,
+        },
+        "accounts": {
+            "current_account": get_current_account(),
+            "available_accounts": get_available_accounts(),
+        },
+        "version": {
+            "local": local_ver,
+            "github_latest": github_info,
+        }
+    }
+
+
 async def check_napcat_environment(live_version_info: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """
     全方位诊断当前 NapCat 环境：
-    1. 本地沙箱文件完整性 (node.exe, index.js)
-    2. 离线安装包是否存在 (NapCat.Shell.Windows.Node.zip)
-    3. 端口监听状态 (HTTP 3000 / WS 3001)
-    4. 已配置 QQ 账号列表
-    5. 本地版本 vs GitHub 官方最新发布版本
+    1. Docker 模式下检测 Docker 守护进程、镜像与容器；Windows 模式下检测 node.exe/index.js
+    2. 端口监听状态 (HTTP 3000 / WS 3001)
+    3. 已配置 QQ 账号列表
+    4. 本地版本 vs GitHub 官方最新发布版本
     """
+    if is_docker_mode():
+        return await _check_docker_environment(live_version_info)
+
     node_exists = os.path.exists(NODE_EXE)
     index_exists = os.path.exists(INDEX_JS)
     runtime_installed = node_exists and index_exists
@@ -226,8 +334,128 @@ async def _deploy_or_update_napcat(
     use_local_zip_if_available: bool = True,
     target_uin: Optional[str] = None
 ) -> dict[str, Any]:
+    """按部署模式分发到 Docker 或 Windows 原生部署实现。"""
+    if is_docker_mode():
+        return await _deploy_or_update_docker(action, confirmed, target_uin)
+    return await _deploy_or_update_windows(action, confirmed, use_local_zip_if_available, target_uin)
+
+
+async def _deploy_or_update_docker(
+    action: str,
+    confirmed: bool,
+    target_uin: Optional[str],
+) -> dict[str, Any]:
+    """Docker 部署：拉取官方镜像并重建容器，数据目录挂载保留登录态。"""
+    if action not in ('deploy', 'update'):
+        return {'status': 'failed', 'error': 'action 必须为 deploy 或 update'}
+    if target_uin is not None and not str(target_uin).isdigit():
+        return {'status': 'failed', 'error': 'target_uin 必须为数字 QQ 号'}
+
+    github_info = await fetch_github_latest_release()
+    uin = target_uin or get_current_account()
+
+    if confirmed is not True:
+        return {
+            'status': 'confirmation_required',
+            'requires_user_permission': True,
+            'deployment_mode': 'docker',
+            'planned_action': action,
+            'docker_image': docker_runtime.IMAGE,
+            'container_name': docker_runtime.CONTAINER_NAME,
+            'target_directory': DOCKER_DATA_DIR,
+            'volumes': {
+                'napcat': {'host': DOCKER_DATA_DIR, 'container': '/app/napcat'},
+                'qq': {'host': DOCKER_QQ_DIR, 'container': '/app/.config/QQ'},
+            },
+            'ports': {
+                'http': DEFAULT_HTTP_PORT,
+                'ws': DEFAULT_WS_PORT,
+                'webui': docker_runtime.WEBUI_PORT,
+            },
+            'github_latest_tag': github_info.get('latest_tag', 'unknown'),
+            'account_to_configure': uin or '(部署后首次启动扫码登录)',
+            'message_for_ai': (
+                '⚠️ 安全拦截：Docker 部署将拉取镜像并重建 NapCat 容器。'
+                '请先向用户展示上述【镜像、容器名、端口与挂载目录】，'
+                '在获得用户明确许可后，再次调用本工具并设置 `confirmed=True` 执行。'
+            ),
+        }
+
+    if not await asyncio.to_thread(docker_runtime.docker_available):
+        return {
+            'status': 'failed',
+            'deployment_mode': 'docker',
+            'error': '未检测到可用的 Docker 服务，请先安装并启动 Docker，或设置 OMNIQQ_NAPCAT_DEPLOY_MODE=windows。',
+        }
+
+    os.makedirs(DOCKER_DATA_DIR, exist_ok=True)
+    os.makedirs(DOCKER_QQ_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(QR_CACHE_IMAGE), exist_ok=True)
+
+    config_ok = False
+    if uin:
+        config_ok = ensure_onebot_config(uin)
+        if not config_ok:
+            return {'status': 'failed', 'deployment_mode': 'docker', 'error': 'OneBot 配置写入失败'}
+
+    task = asyncio.create_task(asyncio.to_thread(
+        docker_runtime.deploy_container,
+        DOCKER_DATA_DIR,
+        DOCKER_QQ_DIR,
+        DEFAULT_HTTP_PORT,
+        DEFAULT_WS_PORT,
+        docker_runtime.WEBUI_PORT,
+        docker_runtime.IMAGE,
+    ))
+    try:
+        deployed = await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
+    if deployed.get('status') != 'success':
+        return {
+            'status': 'failed',
+            'deployment_mode': 'docker',
+            'error': deployed.get('error', 'Docker 部署失败'),
+            'image': docker_runtime.IMAGE,
+        }
+
+    try:
+        health = await asyncio.to_thread(check_installed_runtime)
+    except Exception as exc:
+        return {
+            'status': 'failed',
+            'deployment_mode': 'docker',
+            'error': f'容器启动后健康检查失败: {exc}',
+        }
+
+    return {
+        'status': 'success',
+        'deployment_mode': 'docker',
+        'action': action,
+        'image': docker_runtime.IMAGE,
+        'container': docker_runtime.CONTAINER_NAME,
+        'target_directory': DOCKER_DATA_DIR,
+        'data_directory': DOCKER_DATA_DIR,
+        'qq_directory': DOCKER_QQ_DIR,
+        'ports': deployed.get('ports'),
+        'onebot_configured_for_uin': uin if config_ok else None,
+        'health_check': health,
+        'message': (
+            'Docker 版 NapCat 已成功部署/更新！现在可以调用 `switch_qq_account` 或 '
+            '`login_new_qq_by_qrcode` 登录并启动服务。'
+        ),
+    }
+
+
+async def _deploy_or_update_windows(
+    action: str = "deploy",
+    confirmed: bool = False,
+    use_local_zip_if_available: bool = True,
+    target_uin: Optional[str] = None
+) -> dict[str, Any]:
     """
-    自动部署或更新 NapCat 运行时环境。
+    自动部署或更新 Windows 原生 NapCat 运行时环境。
     安全门禁：当 confirmed=False 时，仅生成部署预览计划，绝不执行文件写入或下载，必须征得用户同意后传入 confirmed=True。
     """
     if action not in ('deploy','update'):

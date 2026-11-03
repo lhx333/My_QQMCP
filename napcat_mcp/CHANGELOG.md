@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Streamable HTTP MCP transport as the default mode: single `/mcp` endpoint with `Mcp-Session-Id` sessions, GET SSE, DELETE termination, `MCP-Protocol-Version` negotiation, optional Bearer auth, Origin checks, `/health` and `--stateless`.
+- Protocol versions `2025-06-18`, `2025-03-26` and `2024-11-05`; unknown requested versions negotiate to the latest supported version.
+- End-to-end Streamable HTTP tests covering session lifecycle, auth, protocol validation, SSE, health and stateless mode.
+- Docker-based NapCat runtime as the default deployment mode, using `mlikiowa/napcat-docker:latest` with mounted `config`, `cache` and QQ data volumes plus container lifecycle management.
+
+### Changed
+- NapCat backend is retained; `--transport stdio` remains available for legacy hosts, while `python napcat_mcp/run_mcp.py` now starts Streamable HTTP on `127.0.0.1:8000/mcp`.
+- Local NapCat deployment now defaults to Docker on Linux; the Windows native Node Shell remains available via `OMNIQQ_NAPCAT_DEPLOY_MODE=windows`.
+- Default OneBot token and runtime locations follow `~/.local/share/OmniQQ-MCP` on Linux/macOS.
+- README and client mount examples now document remote Streamable HTTP first and stdio as compatibility mode.
+
 ## [1.2.2] - 2026-10-28
 
 ### Fixed

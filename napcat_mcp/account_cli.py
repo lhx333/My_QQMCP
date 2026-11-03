@@ -11,6 +11,7 @@ from .config import (
     SHELL_NODE_DIR,
     NODE_EXE,
     INDEX_JS,
+    is_docker_mode,
     get_current_account,
     set_current_account,
     get_available_accounts,
@@ -19,21 +20,26 @@ from .config import (
 
 
 def restart_napcat_with_account(uin: str) -> bool:
-    """切换账号后重启 NapCat 沙箱以新账号上线"""
+    """切换账号后重启 NapCat 运行时（Docker 容器或 Windows 沙箱）以新账号上线"""
     kill_napcat_processes()
     if not set_current_account(uin):
         print('[ERROR] 账号配置保存失败，未启动新账号')
         return False
-    print(f"[*] 正在以账号 {uin} 重新启动 NapCat 沙箱...")
-    startupinfo = subprocess.STARTUPINFO()
-    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-    startupinfo.wShowWindow = 7  # SW_SHOWMINNOACTIVE
-    subprocess.Popen(
-        [NODE_EXE, INDEX_JS, "-q", uin],
-        cwd=SHELL_NODE_DIR,
-        startupinfo=startupinfo,
-        creationflags=0x00000010,  # CREATE_NEW_CONSOLE
-    )
+    if is_docker_mode():
+        from .docker_runtime import restart_container
+        print(f"[*] 正在以账号 {uin} 重启 NapCat 容器...")
+        restart_container()
+    else:
+        print(f"[*] 正在以账号 {uin} 重新启动 NapCat 沙箱...")
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 7  # SW_SHOWMINNOACTIVE
+        subprocess.Popen(
+            [NODE_EXE, INDEX_JS, "-q", uin],
+            cwd=SHELL_NODE_DIR,
+            startupinfo=startupinfo,
+            creationflags=0x00000010,  # CREATE_NEW_CONSOLE
+        )
     for _ in range(30):
         time.sleep(1)
         try:
@@ -52,7 +58,7 @@ def scan_new_account():
     from .config import start_qrcode_login_session
     result = start_qrcode_login_session(open_image=True, wait_scan_seconds=120)
     print(result.get("message") or result.get("error") or result["status"])
-    if result.get("status") == "logged_in_and_configured":
+    if result.get("status") == "logged_in_and_configured" and not is_docker_mode():
         restart_napcat_with_account(result["new_uin"])
 
 

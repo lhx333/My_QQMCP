@@ -24,7 +24,7 @@ class OmniQQReviewFixes(unittest.IsolatedAsyncioTestCase):
         server = NapCatMCPServer(client=NapCatClient(auto_heal=False))
         result = await server.handle_request({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
                                               'params': {'protocolVersion': '2099-01-01'}})
-        self.assertEqual(result['result']['protocolVersion'], '2024-11-05')
+        self.assertEqual(result['result']['protocolVersion'], '2025-06-18')
         await server.client.close()
 
     async def test_stdio_processes_ping_during_slow_request(self):
@@ -107,6 +107,7 @@ class OmniQQReviewFixes(unittest.IsolatedAsyncioTestCase):
                                 NODE_EXE=str(installed / 'node.exe'), INDEX_JS=str(installed / 'index.js'),
                                 LOCAL_RELEASE_ZIP=str(archive)), \
                  patch('napcat_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
+                 patch('napcat_mcp.deployer.is_docker_mode', return_value=False), \
                  patch('napcat_mcp.deployer.kill_napcat_processes'), \
                  patch('napcat_mcp.deployer.get_current_account', return_value='123456'), \
                  patch('napcat_mcp.deployer.ensure_onebot_config', return_value=False):
@@ -130,6 +131,7 @@ class OmniQQReviewFixes(unittest.IsolatedAsyncioTestCase):
                                 NODE_EXE=str(installed / 'node.exe'), INDEX_JS=str(installed / 'index.js'),
                                 LOCAL_RELEASE_ZIP=str(archive)), \
                  patch('napcat_mcp.deployer.fetch_github_latest_release', AsyncMock(return_value={})), \
+                 patch('napcat_mcp.deployer.is_docker_mode', return_value=False), \
                  patch('napcat_mcp.deployer.kill_napcat_processes'), \
                  patch('napcat_mcp.deployer.get_current_account', return_value=''), \
                  patch('napcat_mcp.deployer.check_installed_runtime', side_effect=RuntimeError('bad node')):
@@ -174,7 +176,7 @@ class OmniQQStaticReviewFixes(unittest.TestCase):
 
     def test_stdio_survives_malformed_requests(self):
         entry = Path(__file__).resolve().parent.parent / 'run_mcp.py'
-        result = subprocess.run([sys.executable, str(entry)], input='{broken\n[]\n{"jsonrpc":"2.0","id":7,"method":"ping"}\n',
+        result = subprocess.run([sys.executable, str(entry), '--transport', 'stdio'], input='{broken\n[]\n{"jsonrpc":"2.0","id":7,"method":"ping"}\n',
                                 text=True, capture_output=True, encoding='utf-8', timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         import json
@@ -205,6 +207,7 @@ class OmniQQStaticReviewFixes(unittest.TestCase):
                                    'cmdline': [str(exe), str(root / 'other.js')]})
             with patch('napcat_mcp.config.NODE_EXE', str(exe)), \
                  patch('napcat_mcp.config.INDEX_JS', str(entry)), \
+                 patch('napcat_mcp.config.is_docker_mode', return_value=False), \
                  patch('psutil.process_iter', return_value=[correct, unrelated]), \
                  patch('napcat_mcp.config.time.sleep'):
                 self.assertEqual(kill_napcat_processes(), 1)

@@ -24,11 +24,28 @@ PROJECT_ROOT = os.path.dirname(PACKAGE_DIR)
 USER_DATA_DIR = os.path.join(os.environ.get('LOCALAPPDATA') or os.path.join(Path.home(), '.local', 'share'), 'OmniQQ-MCP')
 _legacy_runtime = os.path.join(PROJECT_ROOT, "napcat_runtime")
 RUNTIME_DIR = os.environ.get('OMNIQQ_RUNTIME_DIR') or (_legacy_runtime if os.path.isdir(_legacy_runtime) else os.path.join(USER_DATA_DIR, 'napcat_runtime'))
+
+# 部署模式：默认 Docker（Linux 服务器/容器环境），Windows 原生 Node Shell 需显式开启。
+DEPLOY_MODE = os.environ.get('OMNIQQ_NAPCAT_DEPLOY_MODE', 'docker').strip().lower()
+if DEPLOY_MODE not in ('docker', 'windows'):
+    DEPLOY_MODE = 'docker'
+
+
+def is_docker_mode() -> bool:
+    return DEPLOY_MODE == 'docker'
+
+
 SHELL_NODE_DIR = os.path.join(RUNTIME_DIR, "shell_node")
 NODE_EXE = os.path.join(SHELL_NODE_DIR, "node.exe")
 INDEX_JS = os.path.join(SHELL_NODE_DIR, "index.js")
-NAPCAT_CONFIG_DIR = os.path.join(SHELL_NODE_DIR, "napcat", "config")
-QR_CACHE_IMAGE = os.path.join(SHELL_NODE_DIR, "napcat", "cache", "qrcode.png")
+DOCKER_DATA_DIR = os.environ.get('NAPCAT_DOCKER_DATA_DIR') or os.path.join(RUNTIME_DIR, "docker", "napcat")
+DOCKER_QQ_DIR = os.environ.get('NAPCAT_DOCKER_QQ_DIR') or os.path.join(RUNTIME_DIR, "docker", "qq")
+if is_docker_mode():
+    NAPCAT_CONFIG_DIR = os.path.join(DOCKER_DATA_DIR, "config")
+    QR_CACHE_IMAGE = os.path.join(DOCKER_DATA_DIR, "cache", "qrcode.png")
+else:
+    NAPCAT_CONFIG_DIR = os.path.join(SHELL_NODE_DIR, "napcat", "config")
+    QR_CACHE_IMAGE = os.path.join(SHELL_NODE_DIR, "napcat", "cache", "qrcode.png")
 DESKTOP_QR_FILENAME = "qq_login_qrcode.png"
 _legacy_account = os.path.join(PROJECT_ROOT, 'current_account.txt')
 
@@ -64,6 +81,9 @@ def export_qrcode_to_desktop(source_path: Optional[str] = None) -> Optional[str]
     try:
         if os.path.getsize(src) <= 0:
             return None
+        if is_docker_mode() and os.name != "nt":
+            # Linux 服务器通常没有桌面环境，直接返回挂载目录中的二维码路径。
+            return os.path.abspath(src)
         desktop_dir = get_desktop_dir()
         os.makedirs(desktop_dir, exist_ok=True)
         dest_path = os.path.join(desktop_dir, DESKTOP_QR_FILENAME)
@@ -107,6 +127,8 @@ DEFAULT_HTTP_PORT = int(os.environ.get("NAPCAT_HTTP_PORT", "3000"))
 DEFAULT_WS_PORT = int(os.environ.get("NAPCAT_WS_PORT", "3001"))
 DEFAULT_HTTP_URL = os.environ.get("NAPCAT_HTTP_URL", f"http://127.0.0.1:{DEFAULT_HTTP_PORT}")
 DEFAULT_WS_URL = os.environ.get("NAPCAT_WS_URL", f"ws://127.0.0.1:{DEFAULT_WS_PORT}")
+# Docker 容器内必须监听 0.0.0.0 才能通过 -p 端口映射访问；宿主机侧仍由 Docker 绑定 127.0.0.1。
+ONEBOT_LISTEN_HOST = os.environ.get("NAPCAT_ONEBOT_LISTEN_HOST") or ("0.0.0.0" if is_docker_mode() else "127.0.0.1")
 
 
 def is_port_listening(port: int, host: str = "127.0.0.1", timeout: float = 0.8) -> bool:
@@ -178,7 +200,7 @@ def ensure_onebot_config(
                 {
                     "name": "httpServer",
                     "enable": True,
-                    "host": "127.0.0.1",
+                    "host": ONEBOT_LISTEN_HOST,
                     "port": int(http_port),
                     "token": token,
                     "enableCors": True,
@@ -191,7 +213,7 @@ def ensure_onebot_config(
                 {
                     "name": "websocketServer",
                     "enable": True,
-                    "host": "127.0.0.1",
+                    "host": ONEBOT_LISTEN_HOST,
                     "port": int(ws_port),
                     "reportSelfMessage": True,
                     "messagePostFormat": "array",
@@ -314,9 +336,13 @@ def kill_qq_processes() -> int:
 
 def kill_napcat_processes(kill_qq: bool = False) -> int:
     """
-    精准停止后台运行中的 NapCat 沙箱进程 (仅终止路径位于 shell_node 下的 node.exe，绝不误杀系统其他 node 进程)
-    返回终止的进程数量。
+    停止本地 NapCat 运行时。Docker 模式下停止托管容器；Windows 模式下仅终止路径位于
+    shell_node 下的 node.exe，绝不误杀系统其他 Node.js 进程。返回停止数量。
     """
+    if is_docker_mode():
+        from .docker_runtime import stop_container
+        return 1 if stop_container() else 0
+
     killed_count = 0
     if kill_qq:
         killed_count += kill_qq_processes()
@@ -346,6 +372,100 @@ def kill_napcat_processes(kill_qq: bool = False) -> int:
 kill_existing_napcat = kill_napcat_processes
 
 
+def _open_qrcode_image(path: Optional[str], open_image: bool) -> bool:
+    """Open an image with the desktop viewer; only Windows has a built-in handler."""
+    if not (path and open_image and os.name == "nt"):
+        return False
+    try:
+        os.startfile(path)
+        return True
+    except Exception:
+        return False
+
+
+def _start_qrcode_login_session_docker(open_image: bool, wait_scan_seconds: int) -> dict[str, Any]:
+    """Docker 版扫码登录：挂载目录中的 qrcode.png 由宿主机直接读取。"""
+    from .docker_runtime import docker_available, start_container, restart_container, container_running
+
+    if not docker_available():
+        return {
+            "status": "docker_unavailable",
+            "error": "未检测到可用的 Docker 服务，请先安装并启动 Docker，或设置 OMNIQQ_NAPCAT_DEPLOY_MODE=windows 使用 Windows 原生运行时。"
+        }
+
+    before_accounts = set(get_available_accounts())
+    clear_auto_login_account()
+    if os.path.exists(QR_CACHE_IMAGE):
+        try:
+            os.remove(QR_CACHE_IMAGE)
+        except Exception:
+            pass
+
+    # 已在运行时重启容器，确保清空旧登录态并生成新的登录二维码。
+    started = restart_container() if container_running() else start_container()
+    if started.get("status") == "not_installed":
+        return {"status": "not_installed", "error": started.get("error")}
+    if started.get("status") == "failed":
+        return {"status": "failed", "error": started.get("error")}
+
+    qr_opened = False
+    desktop_qr_path: Optional[str] = None
+    start_ts = time.time()
+    while time.time() - start_ts < max(10, int(wait_scan_seconds)):
+        if not qr_opened and os.path.exists(QR_CACHE_IMAGE) and os.path.getsize(QR_CACHE_IMAGE) > 100:
+            qr_opened = True
+            desktop_qr_path = export_qrcode_to_desktop(QR_CACHE_IMAGE)
+            _open_qrcode_image(desktop_qr_path or QR_CACHE_IMAGE, open_image)
+
+        after_accounts = set(get_available_accounts())
+        new_accounts = sorted(after_accounts - before_accounts)
+        if new_accounts:
+            target_uin = new_accounts[0]
+            if not set_current_account(target_uin):
+                return {"status": "failed", "error": "账号配置写入失败"}
+            # 重启容器以加载新账号的 OneBot 端口配置；登录态已持久化，无需再次扫码。
+            restart_container()
+            return {
+                "status": "logged_in_and_configured",
+                "deployment_mode": "docker",
+                "new_uin": target_uin,
+                "qrcode_path": desktop_qr_path or QR_CACHE_IMAGE,
+                "desktop_qrcode_path": desktop_qr_path,
+                "available_accounts": get_available_accounts(),
+                "message": f"扫码登录成功！已绑定新 QQ 账号 {target_uin} 并重启 NapCat 容器加载 OneBot 11 配置。"
+            }
+
+        if is_port_listening(DEFAULT_HTTP_PORT):
+            current = get_current_account()
+            if current:
+                return {
+                    "status": "logged_in_and_configured",
+                    "deployment_mode": "docker",
+                    "new_uin": current,
+                    "qrcode_path": desktop_qr_path or (QR_CACHE_IMAGE if os.path.exists(QR_CACHE_IMAGE) else None),
+                    "desktop_qrcode_path": desktop_qr_path,
+                    "available_accounts": get_available_accounts(),
+                    "message": f"账号 {current} 已登录且 OneBot 端口已就绪。"
+                }
+        time.sleep(0.5)
+
+    if not desktop_qr_path and os.path.exists(QR_CACHE_IMAGE):
+        desktop_qr_path = export_qrcode_to_desktop(QR_CACHE_IMAGE)
+    display_qr = desktop_qr_path or (QR_CACHE_IMAGE if os.path.exists(QR_CACHE_IMAGE) else None)
+    return {
+        "status": "scan_timed_out",
+        "deployment_mode": "docker",
+        "qrcode_generated": os.path.exists(QR_CACHE_IMAGE),
+        "qrcode_path": display_qr,
+        "desktop_qrcode_path": desktop_qr_path,
+        "qrcode_opened_on_screen": qr_opened,
+        "message": (
+            f"二维码已生成 ({display_qr})，但在 {wait_scan_seconds} 秒内尚未检测到扫码完成。"
+            "请重新调用 `login_new_qq_by_qrcode` 生成新二维码后扫描。"
+        )
+    }
+
+
 def start_qrcode_login_session(
     open_image: bool = True,
     wait_scan_seconds: int = 45
@@ -359,6 +479,9 @@ def start_qrcode_login_session(
        - 若用户已完成扫码：自动为新账号配置 3000/3001 端口，切换为后台常驻服务并返回新账号；
        - 若等待超时用户尚未扫完：保留二维码图片路径提示用户继续扫码，随后调用 finalize_qrcode_login 完成绑定。
     """
+    if is_docker_mode():
+        return _start_qrcode_login_session_docker(open_image, wait_scan_seconds)
+
     if not (os.path.exists(NODE_EXE) and os.path.exists(INDEX_JS)):
         return {
             "status": "not_installed",

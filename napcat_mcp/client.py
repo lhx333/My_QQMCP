@@ -7,6 +7,7 @@ import asyncio
 import logging
 import random
 import subprocess
+import uuid
 from urllib.parse import urlsplit
 from typing import Any, Optional
 import aiohttp
@@ -22,6 +23,7 @@ from .config import (
     INDEX_JS,
     QR_CACHE_IMAGE,
     is_port_listening,
+    is_docker_mode,
     get_current_account,
     ensure_onebot_config,
     kill_qq_processes,
@@ -58,6 +60,8 @@ class NapCatClient:
         self._running = False
         self._ws_connected = False
         self._start_lock = asyncio.Lock()
+        # HTTP API 不可用时（例如 NapCat 只开启 WebSocket Server）的降级窗口
+        self._http_api_unavailable_until = 0.0
 
     def _get_headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -116,11 +120,14 @@ class NapCatClient:
 
     async def _start_napcat_process(self, uin: Optional[str], wait_seconds: int) -> dict[str, Any]:
         """
-        启动本地 NapCat 沙箱进程 (混合自愈能力)
-        1. 启动前先检查独立 QQ 进程 (QQ.exe) 是否启动，若启动则先结束 QQ 进程；
-        2. 若端口已监听则直接返回就绪；否则拉起本地沙箱 Node；
+        启动本地 NapCat 运行时 (混合自愈能力)
+        1. Docker 模式启动托管容器；Windows 模式先结束冲突的独立 QQ.exe 进程；
+        2. 若端口已监听则直接返回就绪；否则拉起运行时；
         3. 若检测到需要扫码登录并生成了二维码，自动将二维码图片复制到桌面并提示用户打开扫描。
         """
+        if is_docker_mode():
+            return await self._start_docker_container(uin, wait_seconds)
+
         killed_qq = 0
 
         if await asyncio.to_thread(is_port_listening, DEFAULT_HTTP_PORT):
@@ -222,6 +229,139 @@ class NapCatClient:
             "message": "NapCat 进程已启动，但 OneBot 端口尚未就绪（可能需要扫码登录或正在初始化，请检查最小化的 NapCat 窗口）。"
         }
 
+    async def _start_docker_container(self, uin: Optional[str], wait_seconds: int) -> dict[str, Any]:
+        """Docker 模式启动 NapCat 容器并等待 OneBot 端口或登录二维码。"""
+        from . import docker_runtime
+
+        if await asyncio.to_thread(is_port_listening, DEFAULT_HTTP_PORT):
+            return {
+                "status": "already_running",
+                "deployment_mode": "docker",
+                "http_port": DEFAULT_HTTP_PORT,
+                "ws_port": DEFAULT_WS_PORT,
+                "message": "NapCat 容器已在运行中，无需重复启动。"
+            }
+
+        if not await asyncio.to_thread(docker_runtime.docker_available):
+            return {
+                "status": "not_installed",
+                "deployment_mode": "docker",
+                "error": "未检测到可用的 Docker 服务，请先安装并启动 Docker，或设置 OMNIQQ_NAPCAT_DEPLOY_MODE=windows。"
+            }
+
+        self.token = ensure_onebot_token()
+        account = str(uin or get_current_account()).strip()
+        if account and not ensure_onebot_config(account, token=self.token):
+            return {"status": "failed", "deployment_mode": "docker", "error": "无法写入带 Token 的 OneBot 配置"}
+
+        if os.path.exists(QR_CACHE_IMAGE):
+            try:
+                os.remove(QR_CACHE_IMAGE)
+            except Exception:
+                pass
+
+        if await asyncio.to_thread(docker_runtime.container_running):
+            # 容器在运行但 OneBot 端口未就绪（通常等待扫码），重启以生成新的登录二维码。
+            started = await asyncio.to_thread(docker_runtime.restart_container)
+        else:
+            started = await asyncio.to_thread(docker_runtime.start_container)
+        if started.get("status") == "not_installed":
+            return {
+                "status": "not_installed",
+                "deployment_mode": "docker",
+                "error": started.get("error"),
+            }
+        if started.get("status") == "failed":
+            return {
+                "status": "failed",
+                "deployment_mode": "docker",
+                "error": started.get("error"),
+            }
+
+        desktop_qr: Optional[str] = None
+        for _ in range(wait_seconds * 2):
+            if is_port_listening(DEFAULT_HTTP_PORT):
+                return {
+                    "status": "started",
+                    "deployment_mode": "docker",
+                    "uin": account,
+                    "container": started.get("container"),
+                    "http_port": DEFAULT_HTTP_PORT,
+                    "ws_port": DEFAULT_WS_PORT,
+                    "message": f"NapCat 容器已启动并监听端口 {DEFAULT_HTTP_PORT}/{DEFAULT_WS_PORT}。"
+                }
+            if os.path.exists(QR_CACHE_IMAGE) and os.path.getsize(QR_CACHE_IMAGE) > 100:
+                desktop_qr = await asyncio.to_thread(export_qrcode_to_desktop, QR_CACHE_IMAGE)
+                break
+            await asyncio.sleep(0.5)
+
+        if not desktop_qr and os.path.exists(QR_CACHE_IMAGE) and os.path.getsize(QR_CACHE_IMAGE) > 100:
+            desktop_qr = await asyncio.to_thread(export_qrcode_to_desktop, QR_CACHE_IMAGE)
+
+        if desktop_qr:
+            return {
+                "status": "starting_pending_login",
+                "deployment_mode": "docker",
+                "login_required": True,
+                "uin": account,
+                "container": started.get("container"),
+                "qrcode_path": desktop_qr,
+                "desktop_qrcode_path": desktop_qr,
+                "cache_qrcode_path": QR_CACHE_IMAGE,
+                "message": (
+                    f"检测到需要登录 QQ，已将 NapCat 生成的二维码图片保存为：{desktop_qr}，"
+                    "请扫描该二维码登录。"
+                )
+            }
+
+        return {
+            "status": "starting_pending_login",
+            "deployment_mode": "docker",
+            "uin": account,
+            "container": started.get("container"),
+            "message": "NapCat 容器已启动，但 OneBot 端口尚未就绪（可能需要扫码登录或正在初始化）。"
+        }
+
+    async def _call_api_ws(
+        self, action: str, params: dict[str, Any], timeout: float
+    ) -> Optional[dict[str, Any]]:
+        """通过 OneBot WebSocket Server 调用接口（HTTP 端口未开启时的降级路径）。"""
+        echo = f"mcp-{uuid.uuid4().hex}"
+        headers = self._get_headers()
+        try:
+            async with websockets.connect(
+                self.ws_url,
+                additional_headers=headers if headers else None,
+                open_timeout=min(timeout, 10),
+                close_timeout=2,
+                ping_interval=None,
+            ) as ws:
+                await ws.send(json.dumps({
+                    "action": action,
+                    "params": params,
+                    "echo": echo
+                }, ensure_ascii=False))
+                deadline = asyncio.get_running_loop().time() + timeout
+                while True:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        return None
+                    raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
+                    try:
+                        data = json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if not isinstance(data, dict):
+                        continue
+                    if data.get("echo") == echo:
+                        return data
+                    if data.get("retcode") == 1403:
+                        return data
+                    # 同一连接会同时推送事件流，忽略非本次请求的消息
+        except Exception as exc:
+            logger.warning('WebSocket API 调用失败 (%s): %s', action, type(exc).__name__)
+            return None
+
     async def call_api(
         self,
         action: str,
@@ -264,6 +404,12 @@ class NapCatClient:
                     "advice": f"请打开桌面上的二维码图片 ({heal_res.get('desktop_qrcode_path') or heal_res.get('qrcode_path')}) 扫描登录。"
                 }
 
+        loop = asyncio.get_running_loop()
+        if loop.time() < self._http_api_unavailable_until:
+            ws_result = await self._call_api_ws(action_clean, clean_payload, timeout)
+            if ws_result is not None:
+                return ws_result
+
         url = f"{self.http_url}/{action_clean}"
         session = await self.ensure_session()
 
@@ -291,7 +437,13 @@ class NapCatClient:
                 if resp.status >= 400:
                     return {**data,'status':'failed','retcode':resp.status,'action':action_clean}
                 return data
-        except (aiohttp.ClientConnectorError, ConnectionRefusedError) as e:
+        except (aiohttp.ClientConnectionError, ConnectionRefusedError) as e:
+            ws_result = await self._call_api_ws(action_clean, clean_payload, timeout)
+            if ws_result is not None:
+                if loop.time() >= self._http_api_unavailable_until:
+                    logger.info('OneBot HTTP API 不可用，已自动切换为 WebSocket API 调用')
+                self._http_api_unavailable_until = loop.time() + 300
+                return ws_result
             if local_default and os.path.exists(QR_CACHE_IMAGE) and os.path.getsize(QR_CACHE_IMAGE) > 100:
                 desktop_qr = await asyncio.to_thread(export_qrcode_to_desktop, QR_CACHE_IMAGE)
                 return {
